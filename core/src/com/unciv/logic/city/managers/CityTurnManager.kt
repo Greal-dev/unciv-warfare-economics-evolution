@@ -12,6 +12,7 @@ import com.unciv.models.ruleset.tile.ResourceType
 import com.unciv.models.ruleset.unique.UniqueTriggerActivation
 import com.unciv.models.ruleset.unique.UniqueType
 import com.unciv.ui.screens.overviewscreen.EmpireOverviewCategories
+import kotlin.math.ceil
 import kotlin.math.roundToInt
 import kotlin.random.Random
 
@@ -35,6 +36,25 @@ class CityTurnManager(val city: City) {
 
         city.tryUpdateRoadStatus()
         city.attackedThisTurn = false
+
+        // Cultural identity decay: conquered cities gradually assimilate
+        if (city.culturalIdentity > 0) {
+            var decayRate = 1.0  // base -1/turn
+            // Shared religion accelerates assimilation
+            val cityReligion = city.religion.getMajorityReligionName()
+            val civReligion = city.civ.religionManager.religion?.name
+            if (cityReligion != null && civReligion != null && cityReligion == civReligion)
+                decayRate += 1.0
+            // Connected to capital accelerates assimilation
+            if (city.isConnectedToCapital())
+                decayRate += 0.5
+            // At war with founding civ slows assimilation
+            val foundingCiv = city.foundingCivObject
+            if (foundingCiv != null && city.civ.isAtWarWith(foundingCiv))
+                decayRate -= 0.5
+            val decay = ceil(decayRate).toInt().coerceAtLeast(0)
+            city.culturalIdentity = (city.culturalIdentity - decay).coerceAtLeast(0)
+        }
 
         // The ordering is intentional - you get a turn without WLTKD even if you have the next resource already
         // Also resolve end of resistance before updateCitizens

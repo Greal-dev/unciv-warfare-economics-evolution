@@ -3,6 +3,8 @@ package com.unciv.logic.civilization.managers
 import com.unciv.logic.city.managers.CityConquestFunctions
 import com.unciv.logic.civilization.Civilization
 import com.unciv.logic.civilization.Notification.NotificationCategory
+import com.unciv.logic.civilization.PlayerType
+import com.unciv.logic.civilization.diplomacy.DiplomaticStatus
 import yairm210.purity.annotations.Readonly
 import kotlin.random.Random
 
@@ -118,16 +120,138 @@ class ImperialStabilityManager(val civInfo: Civilization) {
         if (civInfo.unitsLostThisTurn > 0)
             breakdown["Military losses"] = civInfo.unitsLostThisTurn * -2f
 
-        // Foreign cities: -1 per city founded by another civ
-        val foreignCities = civInfo.cities.count { it.foundingCivObject != null && it.foundingCivObject != civInfo }
-        if (foreignCities > 0) breakdown["Foreign cities"] = -foreignCities.toFloat()
+        // Cultural identity: scaled penalty based on how recently conquered each city is
+        val culturalPenalty = civInfo.cities.sumOf { it.culturalIdentity.toDouble() } * -0.03
+        if (culturalPenalty < 0) breakdown["Cultural identity"] = culturalPenalty.toFloat()
+
+        // Demographic shock: -5 per city affected this turn
+        if (civInfo.demographicShockCitiesThisTurn > 0)
+            breakdown["Demographic shock"] = civInfo.demographicShockCitiesThisTurn * -5f
 
         return breakdown
+    }
+
+    /**
+     * Civil War: when in Collapse with 5+ cities and 3+ eligible revolt candidates,
+     * the empire splits into loyalists and rebels (a new major civ).
+     * One-time event per civilization.
+     */
+    fun checkForCivilWar(): Boolean {
+        val tier = getTier()
+        if (tier != StabilityTier.Collapse) return false
+        if (civInfo.cities.size < 5) return false
+        if (civInfo.hasSufferedCivilWar) return false
+
+        val capital = civInfo.getCapital() ?: return false
+        val capitalTile = capital.getCenterTile()
+        val currentTurn = civInfo.gameInfo.turns
+
+        // Count eligible revolt cities (cultural identity > 30, in resistance, distant, or recent conquest)
+        val eligibleCities = civInfo.cities.filter { city ->
+            city != capital && (
+                city.culturalIdentity > 30
+                || city.isInResistance()
+                || city.getCenterTile().aerialDistanceTo(capitalTile) > 15
+                || (city.foundingCivObject != null && city.foundingCivObject != civInfo
+                    && currentTurn - city.turnAcquired < 10)
+            )
+        }
+        if (eligibleCities.size < 3) return false
+
+        // Find an unused major nation in the ruleset
+        val gameInfo = civInfo.gameInfo
+        val usedNations = gameInfo.civilizations.map { it.civName }.toSet()
+        val availableNation = gameInfo.ruleset.nations.values.firstOrNull {
+            it.isMajorCiv && it.name !in usedNations
+        } ?: return false
+
+        // Score all non-capital cities: higher = more likely to become rebel
+        val scoredCities = civInfo.cities
+            .filter { it != capital }
+            .map { city ->
+                var score = 0.0
+                score += city.getCenterTile().aerialDistanceTo(capitalTile).toDouble()
+                score += city.culturalIdentity.toDouble()
+                if (!city.isConnectedToCapital()) score += 50
+                if (city.isInResistance()) score += 30
+                Pair(city, score)
+            }
+            .sortedByDescending { it.second }
+
+        // Split: top half becomes rebels
+        val rebelCityCount = scoredCities.size / 2
+        if (rebelCityCount < 2) return false
+        val rebelCities = scoredCities.take(rebelCityCount).map { it.first }
+
+        // Create rebel civilization
+        val rebelCiv = Civilization(availableNation.name)
+        rebelCiv.playerType = PlayerType.AI
+        rebelCiv.gameInfo = gameInfo
+        gameInfo.civilizations.add(rebelCiv)
+        rebelCiv.setNationTransient()
+
+        // Copy tech and policies
+        rebelCiv.tech = civInfo.tech.clone()
+        rebelCiv.policies = civInfo.policies.clone()
+
+        // Proportional gold split
+        val totalCities = civInfo.cities.size
+        val rebelGoldShare = civInfo.gold * rebelCityCount / totalCities
+        rebelCiv.addGold(rebelGoldShare)
+        civInfo.addGold(-rebelGoldShare)
+
+        // Transfer cities to rebel civ
+        for (city in rebelCities.toList()) {
+            CityConquestFunctions(city).moveToCiv(rebelCiv)
+            city.culturalIdentity = 0  // Reset: this is now "their" city
+        }
+
+        // Transfer units on rebel tiles
+        val rebelTiles = rebelCiv.cities.flatMap { it.getTiles().toList() }.toSet()
+        for (unit in civInfo.units.getCivUnits().toList()) {
+            if (unit.currentTile in rebelTiles) {
+                unit.capturedBy(rebelCiv)
+            }
+        }
+
+        // Set up diplomacy: rebels at war with loyalists
+        rebelCiv.diplomacyFunctions.makeCivilizationsMeet(civInfo)
+        rebelCiv.getDiplomacyManager(civInfo)!!.diplomaticStatus = DiplomaticStatus.War
+        civInfo.getDiplomacyManager(rebelCiv)!!.diplomaticStatus = DiplomaticStatus.War
+
+        // Rebels inherit existing wars and meet all known civs
+        for (otherCiv in civInfo.getKnownCivs().toList()) {
+            if (otherCiv == rebelCiv) continue
+            if (!rebelCiv.knows(otherCiv))
+                rebelCiv.diplomacyFunctions.makeCivilizationsMeet(otherCiv)
+            // Inherit wars
+            if (civInfo.isAtWarWith(otherCiv)) {
+                rebelCiv.getDiplomacyManager(otherCiv)!!.diplomaticStatus = DiplomaticStatus.War
+                otherCiv.getDiplomacyManager(rebelCiv)!!.diplomaticStatus = DiplomaticStatus.War
+            }
+        }
+
+        // ISI adjustments
+        rebelCiv.imperialStability = 50
+        civInfo.imperialStability = (civInfo.imperialStability + 20).coerceAtMost(100)
+        civInfo.hasSufferedCivilWar = true
+
+        // Notifications to all civs
+        val message = "Civil war! [${availableNation.name}] has broken away from [${civInfo.civName}] with $rebelCityCount cities!"
+        for (civ in gameInfo.civilizations) {
+            if (civ.isAlive() && (civ.knows(civInfo) || civ == civInfo || civ == rebelCiv))
+                civ.addNotification(message, NotificationCategory.Diplomacy)
+        }
+
+        return true
     }
 
     fun checkForRevolt() {
         val tier = getTier()
         if (tier != StabilityTier.Crisis && tier != StabilityTier.Collapse) return
+
+        // Civil war takes priority over individual revolts
+        if (tier == StabilityTier.Collapse && checkForCivilWar()) return
 
         val revoltChance = if (tier == StabilityTier.Collapse) 0.15f else 0.05f
         if (Random.nextFloat() > revoltChance) return
@@ -146,6 +270,7 @@ class ImperialStabilityManager(val civInfo: Civilization) {
                 if (city.isInResistance()) score += 30
                 if (city.getCenterTile().aerialDistanceTo(capitalTile) > 15) score += 20
                 if (city.foundingCivObject != null && city.foundingCivObject != civInfo) score += 10
+                score += city.culturalIdentity / 2  // max +50 for identity at 100
                 Pair(city, score)
             }
             .filter { it.second > 0 }
@@ -171,6 +296,61 @@ class ImperialStabilityManager(val civInfo: Civilization) {
 
         civInfo.addNotification(
             "[$cityName] has revolted due to imperial instability!",
+            NotificationCategory.Cities
+        )
+    }
+
+    /**
+     * Demographic shock (plague/famine): when ISI < 30, 2% chance per turn.
+     * Ground zero is a random city without Medical Lab. Population loss is -25% to -50%.
+     * Spreads to connected cities (30% chance each) without Medical Lab.
+     * Buildings mitigate: Medical Lab = immune, Hospital = damage /3, Aqueduct = damage /2.
+     */
+    fun checkForDemographicShock() {
+        if (civInfo.imperialStability >= 30) return
+        if (Random.nextFloat() > 0.02f) return
+        if (civInfo.cities.isEmpty()) return
+
+        val vulnerableCities = civInfo.cities.filter {
+            !it.cityConstructions.containsBuildingOrEquivalent("Medical Lab")
+        }
+        if (vulnerableCities.isEmpty()) return
+
+        val groundZero = vulnerableCities.random()
+        val affectedCities = mutableSetOf(groundZero)
+
+        // Propagation to connected cities
+        for (city in civInfo.cities) {
+            if (city == groundZero) continue
+            if (city.cityConstructions.containsBuildingOrEquivalent("Medical Lab")) continue
+            if (!city.isConnectedToCapital()) continue
+            if (Random.nextFloat() < 0.30f) {
+                affectedCities.add(city)
+            }
+        }
+
+        for (city in affectedCities) {
+            val baseLossPercent = 25 + Random.nextInt(26) // 25-50%
+            var effectiveLoss = baseLossPercent
+
+            // Building mitigation
+            if (city.cityConstructions.containsBuildingOrEquivalent("Hospital"))
+                effectiveLoss /= 3
+            else if (city.cityConstructions.containsBuildingOrEquivalent("Aqueduct"))
+                effectiveLoss /= 2
+
+            val popLoss = (city.population.population * effectiveLoss / 100).coerceAtLeast(0)
+            val newPop = (city.population.population - popLoss).coerceAtLeast(1)
+            if (newPop < city.population.population) {
+                city.population.setPopulation(newPop)
+            }
+        }
+
+        civInfo.demographicShockCitiesThisTurn = affectedCities.size
+
+        val shockType = if (Random.nextBoolean()) "plague" else "famine"
+        civInfo.addNotification(
+            "A $shockType has struck [${groundZero.name}] and spread to ${affectedCities.size} cities! (ISI penalty: -${affectedCities.size * 5})",
             NotificationCategory.Cities
         )
     }

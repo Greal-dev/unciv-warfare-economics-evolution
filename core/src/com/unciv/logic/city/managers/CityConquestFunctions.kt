@@ -328,6 +328,7 @@ class CityConquestFunctions(val city: City) {
         city.state = GameContext(city)
         city.hasJustBeenConquered = false
         city.turnAcquired = city.civ.gameInfo.turns
+        city.culturalIdentity = if (city.foundingCivObject != null && city.foundingCivObject != newCiv) 100 else 0
         city.previousOwner = oldCiv.civID
 
         // now that the tiles have changed, we need to reassign population

@@ -100,9 +100,22 @@ The ISI is a score from **0 to 100** that measures how well a civilization can h
 | Gold deficit | -3 |
 | Multiple wars (>1 major enemy) | -2 per additional enemy |
 | Military unit losses this turn | -2 per unit |
-| Foreign-founded cities | -1 per city |
+| Cultural identity (conquered cities) | -0.03 per identity point per city |
+| Demographic shock | -5 per city affected this turn |
 
-### 2.3 — Revolts & Secessions
+### 2.3 — Cultural Assimilation
+
+Conquered cities have a **cultural identity** score (0-100) representing how "foreign" they feel:
+- Starts at **100** when a city is conquered from a different founding civ
+- Decays at **-1/turn** base rate
+- **Accelerated by:** shared religion (-1 extra), connected to capital (-0.5 extra)
+- **Slowed by:** war with founding civ (+0.5)
+- ISI penalty: `-0.03 × culturalIdentity` per city (a city at 100 = -3 ISI, at 50 = -1.5, at 0 = none)
+- Revolt priority: `+culturalIdentity/2` (max +50 for a city at 100)
+
+This replaces the old flat "Foreign-founded cities: -1 per city" factor.
+
+### 2.4 — Revolts & Secessions
 
 When in **Crisis** (5% chance) or **Collapse** (15% chance) each turn, a city may revolt and become an independent city-state.
 
@@ -111,10 +124,44 @@ Revolt priority scoring:
 - In resistance: +30
 - Distant from capital (>15 tiles): +20
 - Foreign-founded: +10
+- Cultural identity: +identity/2 (max +50)
 
 The **capital never revolts**. Maximum 1 revolt per turn. After a revolt, ISI gains +15 (stability relief). Friendly units in the revolting city are teleported to nearest safe tile.
 
-### 2.4 — Renaissance Bonus
+### 2.5 — Civil War
+
+When the empire is in **Collapse** tier with **5+ cities** and **3+ eligible revolt candidates**, a Civil War triggers instead of individual revolts. This is a **one-time event** per civilization.
+
+**Conditions:**
+- ISI tier = Collapse
+- 5+ cities total
+- 3+ cities with cultural identity > 30, in resistance, distant from capital, or recently conquered
+- No previous civil war
+
+**Mechanics:**
+1. An unused major nation from the ruleset becomes the rebel faction
+2. Cities are scored by distance from capital + cultural identity + disconnection + resistance
+3. The top half (most distant/foreign) become rebel cities, the rest stay loyal
+4. Rebels inherit: proportional tech, policies, and gold
+5. Units on rebel territory are captured
+6. Rebels start at war with loyalists and inherit existing wars
+7. Rebel ISI starts at 50; loyalist ISI gains +20
+
+### 2.6 — Demographic Shocks (Plague/Famine)
+
+When ISI < 30, there is a **2% chance per turn** of a demographic shock:
+
+**Ground zero:** A random city without a Medical Lab
+**Population loss:** -25% to -50% (minimum population: 1)
+**Propagation:** 30% chance to spread to each connected city without Medical Lab
+**Building protection:**
+- Medical Lab = total immunity
+- Hospital = damage ÷3
+- Aqueduct = damage ÷2
+
+**ISI penalty:** -5 per city affected this turn
+
+### 2.7 — Renaissance Bonus
 
 When ISI recovers from below 40 to 60 or above, a **Renaissance** triggers:
 - Duration: **15 turns**
@@ -324,9 +371,22 @@ L'ISI est un score de **0 a 100** qui mesure la capacite d'une civilisation a ma
 | Deficit d'or | -3 |
 | Guerres multiples (>1 ennemi majeur) | -2 par ennemi supplementaire |
 | Pertes militaires ce tour | -2 par unite |
-| Villes fondees par d'autres | -1 par ville |
+| Identite culturelle (villes conquises) | -0.03 par point d'identite par ville |
+| Choc demographique | -5 par ville touchee ce tour |
 
-### 2.3 — Revoltes et Secessions
+### 2.3 — Assimilation Culturelle
+
+Les villes conquises ont un score d'**identite culturelle** (0-100) representant leur degre d'« etrangete » :
+- Commence a **100** quand une ville est conquise d'une civilisation fondatrice differente
+- Decroit a **-1/tour** (taux de base)
+- **Accelere par :** religion partagee (-1 extra), connexion a la capitale (-0.5 extra)
+- **Ralenti par :** guerre avec la civilisation fondatrice (+0.5)
+- Penalite ISI : `-0.03 x identiteCulturelle` par ville (ville a 100 = -3 ISI, a 50 = -1.5, a 0 = rien)
+- Priorite de revolte : `+identiteCulturelle/2` (max +50 pour une ville a 100)
+
+Remplace l'ancien facteur « Villes fondees par d'autres : -1 par ville ».
+
+### 2.4 — Revoltes et Secessions
 
 En **Crise** (5% par tour) ou **Effondrement** (15% par tour), une ville peut se revolter et devenir une cite-etat independante.
 
@@ -335,10 +395,44 @@ Score de priorite de revolte :
 - En resistance : +30
 - Distante de la capitale (>15 tuiles) : +20
 - Fondee par un autre : +10
+- Identite culturelle : +identite/2 (max +50)
 
 La **capitale ne se revolte jamais**. Maximum 1 revolte par tour. Apres une revolte, l'ISI gagne +15 (soulagement). Les unites amies dans la ville revoltee sont teleportees a la tuile sure la plus proche.
 
-### 2.4 — Bonus de Renaissance
+### 2.5 — Guerre Civile
+
+Quand l'empire est en **Effondrement** avec **5+ villes** et **3+ candidats a la revolte eligibles**, une Guerre Civile se declenche au lieu de revoltes individuelles. C'est un **evenement unique** par civilisation.
+
+**Conditions :**
+- Niveau ISI = Effondrement
+- 5+ villes au total
+- 3+ villes avec identite culturelle > 30, en resistance, distantes de la capitale, ou conquises recemment
+- Pas de guerre civile precedente
+
+**Mecaniques :**
+1. Une nation majeure inutilisee du ruleset devient la faction rebelle
+2. Les villes sont classees par distance a la capitale + identite culturelle + deconnexion + resistance
+3. La moitie superieure (les plus distantes/etrangeres) devient rebelle, le reste reste loyaliste
+4. Les rebelles heritent : tech, politiques, et or proportionnel
+5. Les unites sur le territoire rebelle sont capturees
+6. Les rebelles commencent en guerre avec les loyalistes et heritent des guerres existantes
+7. ISI rebelle = 50 ; ISI loyaliste +20
+
+### 2.6 — Chocs Demographiques (Peste/Famine)
+
+Quand l'ISI < 30, il y a **2% de chance par tour** qu'un choc demographique se produise :
+
+**Ville ground zero :** une ville aleatoire sans Medical Lab
+**Perte de population :** -25% a -50% (population minimum : 1)
+**Propagation :** 30% de chance de se propager a chaque ville connectee sans Medical Lab
+**Protection des batiments :**
+- Medical Lab = immunite totale
+- Hospital = degats /3
+- Aqueduct = degats /2
+
+**Penalite ISI :** -5 par ville touchee ce tour
+
+### 2.7 — Bonus de Renaissance
 
 Quand l'ISI remonte de moins de 40 a 60 ou plus, une **Renaissance** se declenche :
 - Duree : **15 tours**

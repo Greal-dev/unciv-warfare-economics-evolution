@@ -209,6 +209,10 @@ class Civilization : IsPartOfGameInfoSerialization {
     var wasInCrisis = false
     /** Territorial Warfare: number of military units lost this turn, reset each turn */
     var unitsLostThisTurn = 0
+    /** Territorial Warfare: number of cities hit by demographic shock this turn */
+    var demographicShockCitiesThisTurn = 0
+    /** Territorial Warfare: whether this civ has already suffered a civil war (one-time event) */
+    var hasSufferedCivilWar = false
 
     // Limit camera within explored region
     var exploredRegion = ExploredRegion()
@@ -341,6 +345,15 @@ class Civilization : IsPartOfGameInfoSerialization {
         toReturn.hasMovedAutomatedUnits = hasMovedAutomatedUnits
         toReturn.statsHistory = statsHistory.clone()
         toReturn.resourceStockpiles = resourceStockpiles.clone()
+        // Territorial Warfare fields
+        toReturn.warExperienceBonus = warExperienceBonus
+        toReturn.turnsInIndustrialEra = turnsInIndustrialEra
+        toReturn.imperialStability = imperialStability
+        toReturn.renaissanceTurnsRemaining = renaissanceTurnsRemaining
+        toReturn.wasInCrisis = wasInCrisis
+        toReturn.unitsLostThisTurn = unitsLostThisTurn
+        toReturn.demographicShockCitiesThisTurn = demographicShockCitiesThisTurn
+        toReturn.hasSufferedCivilWar = hasSufferedCivilWar
         return toReturn
     }
 

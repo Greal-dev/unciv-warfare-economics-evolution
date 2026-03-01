@@ -71,6 +71,8 @@ class TurnManager(val civInfo: Civilization) {
             civInfo.imperialStability = civInfo.stabilityManager.calculateISI()
             civInfo.stabilityManager.checkRenaissanceTransition(previousISI, civInfo.imperialStability)
             civInfo.stabilityManager.decrementRenaissance()
+            civInfo.demographicShockCitiesThisTurn = 0
+            civInfo.stabilityManager.checkForDemographicShock()
             civInfo.stabilityManager.checkForRevolt()
 
             // Notify on tier change

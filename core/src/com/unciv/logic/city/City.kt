@@ -74,6 +74,7 @@ class City : IsPartOfGameInfoSerialization, INamed {
     // This is so that cities in resistance that are recaptured aren't in resistance anymore
     var previousOwner = ""
     var turnAcquired = 0
+    var culturalIdentity = 0  // 0 = fully assimilated, 100 = just conquered
     var health = 200
 
 
@@ -178,6 +179,7 @@ class City : IsPartOfGameInfoSerialization, INamed {
         toReturn.attackedThisTurn = attackedThisTurn
         toReturn.foundingCiv = foundingCiv
         toReturn.turnAcquired = turnAcquired
+        toReturn.culturalIdentity = culturalIdentity
         toReturn.isPuppet = isPuppet
         toReturn.isOriginalCapital = isOriginalCapital
         toReturn.flagsCountdown.putAll(flagsCountdown)

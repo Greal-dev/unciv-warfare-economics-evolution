@@ -132,4 +132,116 @@ class ImperialStabilityTest {
         val breakdown = civInfo.stabilityManager.getISIBreakdown()
         assertEquals("Base stability should be 50", 50f, breakdown["Base stability"] ?: 0f, 0.01f)
     }
+
+    // === R1: Cultural Identity tests ===
+
+    @Test
+    fun `cultural identity starts at 0 for new city`() {
+        val city = testGame.addCity(civInfo, testGame.tileMap[0, 0])
+        assertEquals(0, city.culturalIdentity)
+    }
+
+    @Test
+    fun `cultural identity creates ISI penalty`() {
+        val city = testGame.addCity(civInfo, testGame.tileMap[0, 0])
+        city.culturalIdentity = 100  // Just conquered foreign city
+
+        val breakdown = civInfo.stabilityManager.getISIBreakdown()
+        val penalty = breakdown["Cultural identity"] ?: 0f
+        assertEquals("Cultural identity at 100 should give -3 ISI", -3f, penalty, 0.01f)
+    }
+
+    @Test
+    fun `cultural identity of 0 creates no penalty`() {
+        val city = testGame.addCity(civInfo, testGame.tileMap[0, 0])
+        city.culturalIdentity = 0
+
+        val breakdown = civInfo.stabilityManager.getISIBreakdown()
+        assertNull("No cultural identity penalty expected", breakdown["Cultural identity"])
+    }
+
+    @Test
+    fun `cultural identity is cloned correctly`() {
+        val city = testGame.addCity(civInfo, testGame.tileMap[0, 0])
+        city.culturalIdentity = 75
+        val clone = city.clone()
+        assertEquals(75, clone.culturalIdentity)
+    }
+
+    // === R6: Demographic Shock tests ===
+
+    @Test
+    fun `demographic shock does not trigger at high ISI`() {
+        testGame.addCity(civInfo, testGame.tileMap[0, 0])
+        civInfo.imperialStability = 50
+        civInfo.demographicShockCitiesThisTurn = 0
+        civInfo.stabilityManager.checkForDemographicShock()
+        assertEquals("No shock at ISI 50", 0, civInfo.demographicShockCitiesThisTurn)
+    }
+
+    @Test
+    fun `demographic shock penalty appears in ISI breakdown`() {
+        testGame.addCity(civInfo, testGame.tileMap[0, 0])
+        civInfo.demographicShockCitiesThisTurn = 3
+
+        val breakdown = civInfo.stabilityManager.getISIBreakdown()
+        assertEquals("3 cities shocked = -15 ISI", -15f, breakdown["Demographic shock"] ?: 0f, 0.01f)
+    }
+
+    // === R2: Civil War tests ===
+
+    @Test
+    fun `civil war requires collapse tier`() {
+        civInfo.imperialStability = 50  // Tensions, not Collapse
+        assertFalse(civInfo.stabilityManager.checkForCivilWar())
+    }
+
+    @Test
+    fun `civil war requires 5+ cities`() {
+        civInfo.imperialStability = 5  // Collapse
+        // Only 3 cities
+        testGame.addCity(civInfo, testGame.tileMap[0, 0])
+        testGame.addCity(civInfo, testGame.tileMap[2, 0])
+        testGame.addCity(civInfo, testGame.tileMap[-2, 0])
+        assertFalse(civInfo.stabilityManager.checkForCivilWar())
+    }
+
+    @Test
+    fun `civil war cannot happen twice`() {
+        civInfo.hasSufferedCivilWar = true
+        civInfo.imperialStability = 5
+        assertFalse(civInfo.stabilityManager.checkForCivilWar())
+    }
+
+    @Test
+    fun `hasSufferedCivilWar is cloned correctly`() {
+        civInfo.hasSufferedCivilWar = true
+        val clone = civInfo.clone()
+        assertTrue(clone.hasSufferedCivilWar)
+    }
+
+    @Test
+    fun `demographicShockCitiesThisTurn is cloned correctly`() {
+        civInfo.demographicShockCitiesThisTurn = 4
+        val clone = civInfo.clone()
+        assertEquals(4, clone.demographicShockCitiesThisTurn)
+    }
+
+    @Test
+    fun `TW fields are cloned correctly`() {
+        civInfo.warExperienceBonus = 15
+        civInfo.turnsInIndustrialEra = 42
+        civInfo.imperialStability = 35
+        civInfo.renaissanceTurnsRemaining = 10
+        civInfo.wasInCrisis = true
+        civInfo.unitsLostThisTurn = 3
+
+        val clone = civInfo.clone()
+        assertEquals(15, clone.warExperienceBonus)
+        assertEquals(42, clone.turnsInIndustrialEra)
+        assertEquals(35, clone.imperialStability)
+        assertEquals(10, clone.renaissanceTurnsRemaining)
+        assertTrue(clone.wasInCrisis)
+        assertEquals(3, clone.unitsLostThisTurn)
+    }
 }
