@@ -186,7 +186,8 @@ internal class WorkerAutomationTest {
         val maxShouldBeInProgress = 1
         assertTrue("Worker improvements in progress was greater than $maxShouldBeInProgress, actual: $inProgressCount",
             inProgressCount <= maxShouldBeInProgress)
-        val minShouldHaveFinished = 5
+        // Territorial Warfare: improvements take 2× longer, so fewer are built in the same time
+        val minShouldHaveFinished = 2
         assertTrue("Worker should have built at least $minShouldHaveFinished improvements but only built $finishedCount",
             finishedCount >= minShouldHaveFinished)
     }
@@ -256,7 +257,8 @@ internal class WorkerAutomationTest {
         val maxShouldBeInProgress = 1
         assertTrue("Worker improvements in progress was greater than $maxShouldBeInProgress, actual: $inProgressCount",
             inProgressCount <= maxShouldBeInProgress)
-        val minShouldHaveFinished = 5
+        // Territorial Warfare: improvements take 2× longer, so fewer are built in the same time
+        val minShouldHaveFinished = 2
         assertTrue("Worker should have built at least $minShouldHaveFinished improvements but only built $finishedCount",
             finishedCount >= minShouldHaveFinished)
     }
@@ -288,7 +290,8 @@ internal class WorkerAutomationTest {
             city.cityConstructions.addBuilding("Stock Exchange")
         }
         val worker = testGame.addUnit("Worker", civInfo, city1.getCenterTile())
-        for(i in 0..24) {
+        // Territorial Warfare: improvements take 2× longer, so more turns needed to connect cities
+        for(i in 0..49) {
             worker.currentMovement = 2f
             for (unit in civInfo.units.getCivUnits()) {
                 // Disband any workers that may have been built in this time period
@@ -318,7 +321,8 @@ internal class WorkerAutomationTest {
         val maxShouldBeInProgress = 1
         assertTrue("Worker roads in progress was greater than $maxShouldBeInProgress, actual: $inProgressCount",
             inProgressCount <= maxShouldBeInProgress)
-        val minShouldHaveFinished = 5
+        // Territorial Warfare: improvements take 2× longer, so fewer roads are built in the same time
+        val minShouldHaveFinished = 2
         assertTrue("Worker should have built $minShouldHaveFinished roads but only built $finishedCount",
             finishedCount >= minShouldHaveFinished)
         civInfo.cache.updateCitiesConnectedToCapital()

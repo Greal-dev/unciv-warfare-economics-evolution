@@ -70,7 +70,8 @@ class CityPopulationManagerTest {
         val cityStateCityFoodRequirements = cityStateCity.population.getFoodToNextPopulation()
 
         // then
-        assertTrue(cityFoodRequirements < cityStateCityFoodRequirements)
+        // Territorial Warfare: city-state growth ×3 (food requirements divided by 3)
+        assertTrue(cityStateCityFoodRequirements < cityFoodRequirements)
     }
 
     @Test
@@ -252,6 +253,8 @@ class CityPopulationManagerTest {
         val specialistBuilding = testGame.createBuilding()
         specialistBuilding.specialistSlots.add("Merchant", 1)
         city.cityConstructions.addBuilding(specialistBuilding)
+        // Territorial Warfare: add Aqueduct to reduce food malus (25% → 50%) so specialist is preferred
+        city.cityConstructions.addBuilding("Aqueduct")
 
         city.population.foodStored = 14
         assertTrue(city.population.specialistAllocations.isEmpty())

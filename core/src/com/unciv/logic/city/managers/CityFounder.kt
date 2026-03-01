@@ -43,6 +43,18 @@ class CityFounder {
 
         city.expansion.reset()
 
+        // Territorial Warfare: reassign tiles from other cities of the same civ
+        // that are closer to this new city
+        for (otherCity in civInfo.cities.filter { it != city }) {
+            val tilesToReassign = otherCity.getTiles().filter { tile ->
+                !tile.isCityCenter() &&
+                tile.aerialDistanceTo(city.getCenterTile()) < tile.aerialDistanceTo(otherCity.getCenterTile())
+            }
+            for (tile in tilesToReassign) {
+                city.expansion.takeOwnership(tile)
+            }
+        }
+
         city.tryUpdateRoadStatus()
 
         val tile = city.getCenterTile()

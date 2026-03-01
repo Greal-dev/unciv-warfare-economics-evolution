@@ -119,6 +119,9 @@ class MapUnit : IsPartOfGameInfoSerialization {
 
     var statusMap = HashMap<String, UnitStatus>()
 
+    /** Territorial Warfare mod: tracks whether this unit already claimed a neutral tile this turn */
+    var hasClaimedNeutralTileThisTurn = false
+
     //endregion
     //region Transient fields
 
@@ -932,7 +935,7 @@ class MapUnit : IsPartOfGameInfoSerialization {
         }
     }
 
-    fun moveThroughTile(tile: Tile) {
+    fun moveThroughTile(tile: Tile, isActualMovement: Boolean = true) {
         // addPromotion requires currentTile to be valid because it accesses ruleset through it.
         // getAncientRuinBonus, if it places a new unit, does too
         currentTile = tile
@@ -959,6 +962,31 @@ class MapUnit : IsPartOfGameInfoSerialization {
         // Capture Enemy Civilian Unit if you move on top of it
         if (isMilitary() && unguardedCivilian != null && civ.isAtWarWith(unguardedCivilian.civ)) {
             BattleUnitCapture.captureCivilianUnit(MapUnitCombatant(this), MapUnitCombatant(tile.civilianUnit!!))
+        }
+
+        // Territorial Warfare: military units claim neutral/enemy territory (only during actual movement)
+        if (isActualMovement && isMilitary() && !tile.isCityCenter() && civ.cities.isNotEmpty()) {
+            val tileOwner = tile.getOwner()
+            if (tileOwner == null && !hasClaimedNeutralTileThisTurn) {
+                // Claim neutral tile - limited to 1 per turn per unit
+                val nearestCity = civ.cities.minByOrNull { it.getCenterTile().aerialDistanceTo(tile) }
+                if (nearestCity != null) {
+                    nearestCity.expansion.takeOwnership(tile)
+                    hasClaimedNeutralTileThisTurn = true
+                }
+            } else if (tileOwner != null && civ.isAtWarWith(tileOwner)) {
+                // Capture enemy tile - costs 10 HP
+                val nearestCity = civ.cities.minByOrNull { it.getCenterTile().aerialDistanceTo(tile) }
+                if (nearestCity != null) {
+                    nearestCity.expansion.takeOwnership(tile)
+                    takeDamage(10)
+                    // Auto-pillage improvement and heal 50 HP
+                    if (tile.improvement != null && !tile.improvementIsPillaged) {
+                        tile.setPillaged()
+                        healBy(50)
+                    }
+                }
+            }
         }
 
         val promotionUniques = tile.neighbors
@@ -992,7 +1020,7 @@ class MapUnit : IsPartOfGameInfoSerialization {
                 isTransported = currentUntransportedUnits > tile.getCity()!!.getMaxAirUnits()
             }
         }
-        moveThroughTile(tile)
+        moveThroughTile(tile, isActualMovement = false)
         cache.updateUniques()
     }
 

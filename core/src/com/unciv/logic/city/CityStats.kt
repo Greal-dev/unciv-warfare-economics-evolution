@@ -102,7 +102,7 @@ class CityStats(val city: City) {
         val stats = Stats()
         val capitalForTradeRoutePurposes = city.civ.getCapital()!!
         if (city != capitalForTradeRoutePurposes && city.isConnectedToCapital()) {
-            stats.gold = capitalForTradeRoutePurposes.population.population * 0.15f + city.population.population * 1.1f - 1 // Calculated by http://civilization.wikia.com/wiki/Trade_route_(Civ5)
+            stats.gold = (capitalForTradeRoutePurposes.population.population * 0.15f + city.population.population * 1.1f - 1) * 3f // Territorial Warfare: trade route bonus ×3
             for (unique in city.getMatchingUniques(UniqueType.StatsFromTradeRoute))
                 stats.add(unique.stats)
             val percentageStats = Stats()
@@ -278,6 +278,21 @@ class CityStats(val city: City) {
                 addUniqueStats(unique, Stat.Production, unique.params[0].toFloat())
         }
 
+        // Territorial Warfare: military unit production ×2 in war, /2 in peace
+        if (currentConstruction is BaseUnit && currentConstruction.isMilitary) {
+            val warPeaceModifier = if (city.civ.isAtWar()) 100f else -50f // +100% in war, -50% in peace
+            if (warPeaceModifier != 0f) {
+                val stats = Stats()
+                stats.add(Stat.Production, warPeaceModifier)
+                sourceToStats.addStats(stats, "War/Peace", "Military production")
+            }
+            // Territorial Warfare: city-states get ×3 military production
+            if (city.civ.isCityState) {
+                val csStats = Stats()
+                csStats.add(Stat.Production, 200f) // +200% = ×3 total
+                sourceToStats.addStats(csStats, "City-State", "Military production bonus")
+            }
+        }
 
         for (unique in city.getMatchingUniques(UniqueType.StatPercentFromReligionFollowers))
             addUniqueStats(unique, Stat.valueOf(unique.params[1]),
@@ -363,8 +378,24 @@ class CityStats(val city: City) {
                 continue
             }
             val tileStats = tile.stats.getTileStats(city, city.civ, localUniqueCache)
-            stats.add(tileStats)
+            // Territorial Warfare: for worked tiles, only add non-food stats
+            val nonFoodStats = tileStats.clone().apply { food = 0f }
+            stats.add(nonFoodStats)
         }
+
+        // Territorial Warfare: food is collected from ALL territory tiles, with a building-based malus
+        var totalTerritoryFood = 0f
+        for (tile in city.getTiles()) {
+            totalTerritoryFood += tile.stats.getTileStats(city, city.civ, localUniqueCache).food
+        }
+        val foodEfficiency = when {
+            city.cityConstructions.containsBuildingOrEquivalent("Medical Center") -> 1.0f   // 0% malus
+            city.cityConstructions.containsBuildingOrEquivalent("Hospital") -> 0.75f        // 25% malus
+            city.cityConstructions.containsBuildingOrEquivalent("Aqueduct") -> 0.50f        // 50% malus
+            else -> 0.25f                                                                     // 75% malus
+        }
+        stats.food += totalTerritoryFood * foodEfficiency
+
         statsFromTiles = stats
     }
 
@@ -517,6 +548,18 @@ class CityStats(val city: City) {
 
         for (entry in newFinalStatList.values)
             entry.production *= statPercentBonusesSum.production.toPercent()
+
+        // Territorial Warfare: logistic production growth in Industrial era
+        val industrialEra = city.civ.gameInfo.ruleset.eras.values.firstOrNull { it.name == "Industrial era" }
+        if (industrialEra != null && city.civ.getEraNumber() >= industrialEra.eraNumber && city.civ.turnsInIndustrialEra > 0) {
+            val x = city.civ.turnsInIndustrialEra.toDouble()
+            val multiplier = (-115.0 + 430.0 / (1.0 + kotlin.math.exp(-0.0065 * (x - 1.0)))) / 100.0
+            if (multiplier > 1.0) {
+                val bonusMultiplier = (multiplier - 1.0).toFloat() // extra bonus beyond 1.0
+                for (entry in newFinalStatList.values)
+                    entry.production *= (1f + bonusMultiplier)
+            }
+        }
 
         // We only add the 'extra stats from production' AFTER we calculate the production INCLUDING BONUSES
         val statsFromProduction = getStatsFromProduction(newFinalStatList.values.map { it.production }.sum())

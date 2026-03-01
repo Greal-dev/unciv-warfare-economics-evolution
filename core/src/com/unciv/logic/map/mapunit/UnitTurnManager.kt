@@ -54,6 +54,7 @@ class UnitTurnManager(val unit: MapUnit) {
         }
 
         doCitadelDamage()
+        doIsolationAttrition()
         doTerrainDamage()
 
         unit.addMovementMemory()
@@ -112,6 +113,39 @@ class UnitTurnManager(val unit: MapUnit) {
     }
 
 
+    /** Territorial Warfare: military units surrounded by enemy territory lose 50 HP/turn */
+    private fun doIsolationAttrition() {
+        if (!unit.isMilitary()) return
+        val tile = unit.currentTile
+        val tileOwner = tile.getOwner() ?: return
+        if (!unit.civ.isAtWarWith(tileOwner)) return
+
+        // Check if ALL adjacent tiles are in enemy territory
+        val allAdjacentEnemy = tile.neighbors.all { neighbor ->
+            val owner = neighbor.getOwner()
+            owner != null && unit.civ.isAtWarWith(owner)
+        }
+        if (!allAdjacentEnemy) return
+
+        unit.takeDamage(50)
+        if (unit.health <= 0) {
+            unit.civ.addNotification(
+                "Our [${unit.name}] was destroyed by isolation in enemy territory",
+                tile.position,
+                NotificationCategory.War,
+                unit.name, NotificationIcon.Death
+            )
+            unit.destroy()
+        } else {
+            unit.civ.addNotification(
+                "Our [${unit.name}] is taking attrition damage from isolation in enemy territory",
+                MapUnitAction(unit),
+                NotificationCategory.War,
+                unit.name
+            )
+        }
+    }
+
     private fun doTerrainDamage() {
         val tileDamage = unit.getDamageFromTerrain()
         if (tileDamage == 0) return
@@ -140,6 +174,7 @@ class UnitTurnManager(val unit: MapUnit) {
         unit.currentMovement = unit.getMaxMovement().toFloat()
         unit.attacksThisTurn = 0
         unit.due = true
+        unit.hasClaimedNeutralTileThisTurn = false
 
         for (unique in unit.getTriggeredUniques(UniqueType.TriggerUponTurnStart))
             UniqueTriggerActivation.triggerUnique(unique, unit)

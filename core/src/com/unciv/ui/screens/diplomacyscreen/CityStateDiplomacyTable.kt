@@ -78,6 +78,16 @@ class CityStateDiplomacyTable(private val diplomacyScreen: DiplomacyScreen) {
         val diplomaticMarriageButton = getDiplomaticMarriageButton(otherCiv)
         if (diplomaticMarriageButton != null) diplomacyTable.add(diplomaticMarriageButton).row()
 
+        // Territorial Warfare: territory exchange with city-states
+        if (!viewingCiv.isAtWarWith(otherCiv) && !diplomacyScreen.isNotPlayersTurn()) {
+            val territoryExchangeButton = "Territory Exchange".toTextButton()
+            territoryExchangeButton.onClick {
+                diplomacyScreen.rightSideTable.clear()
+                diplomacyScreen.rightSideTable.add(ScrollPane(getTerritoryExchangeTable(otherCiv)))
+            }
+            diplomacyTable.add(territoryExchangeButton).row()
+        }
+
         for (assignedQuest in otherCiv.questManager.getAssignedQuestsFor(viewingCiv)) {
             diplomacyTable.addSeparator()
             diplomacyTable.add(getQuestTable(assignedQuest)).row()
@@ -489,5 +499,118 @@ class CityStateDiplomacyTable(private val diplomacyScreen: DiplomacyScreen) {
             .width(diplomacyScreen.stage.width / 2).row()
 
         return warTable
+    }
+
+    /**
+     * Territorial Warfare: territory exchange interface with city-states.
+     * Player can demand tiles (-50 influence per tile) or give tiles (+30 influence per tile).
+     */
+    private fun getTerritoryExchangeTable(otherCiv: Civilization): Table {
+        val table = Table()
+        table.defaults().pad(5f)
+
+        val otherCivDiplomacy = otherCiv.getDiplomacyManager(viewingCiv)!!
+        val currentInfluence = otherCivDiplomacy.getInfluence()
+
+        table.add("Territory Exchange with [${otherCiv.civName}]".toLabel(fontSize = Constants.headingFontSize)).colspan(2).row()
+        table.add("Current influence: [${currentInfluence.toInt()}]".toLabel()).colspan(2).row()
+        table.addSeparator()
+
+        val selectedTilesToDemand = mutableListOf<com.unciv.logic.map.tile.Tile>()
+        val selectedTilesToGive = mutableListOf<com.unciv.logic.map.tile.Tile>()
+        val influenceChangeLabel = "Influence change: [0]".toLabel()
+
+        fun updateInfluenceLabel() {
+            val change = selectedTilesToGive.size * 30 - selectedTilesToDemand.size * 50
+            influenceChangeLabel.setText("Influence change: [${if (change >= 0) "+$change" else "$change"}]".tr())
+        }
+
+        // Section: Tiles to demand from CS
+        table.add("Demand tiles (-50 influence each):".toLabel()).colspan(2).row()
+        val csTiles = otherCiv.cities.flatMap { it.getTiles() }
+            .filter { !it.isCityCenter() }
+            .sortedBy { it.aerialDistanceTo(viewingCiv.getCapital()?.getCenterTile() ?: it) }
+            .take(20) // Limit to 20 tiles for UI performance
+
+        for (tile in csTiles) {
+            val tileName = "${tile.baseTerrain}${if (tile.improvement != null) " (${tile.improvement})" else ""} [${tile.position}]"
+            val button = tileName.toTextButton()
+            button.onClick {
+                if (tile in selectedTilesToDemand) {
+                    selectedTilesToDemand.remove(tile)
+                    button.color = Color.WHITE
+                } else {
+                    selectedTilesToDemand.add(tile)
+                    button.color = Color.RED
+                }
+                updateInfluenceLabel()
+            }
+            table.add(button).colspan(2).row()
+        }
+
+        table.addSeparator()
+
+        // Section: Tiles to give to CS
+        table.add("Give tiles (+30 influence each):".toLabel()).colspan(2).row()
+        val playerTilesAdjacentToCs = viewingCiv.cities.flatMap { it.getTiles() }
+            .filter { playerTile ->
+                !playerTile.isCityCenter() &&
+                playerTile.neighbors.any { it.getOwner() == otherCiv }
+            }
+            .take(20)
+
+        for (tile in playerTilesAdjacentToCs) {
+            val tileName = "${tile.baseTerrain}${if (tile.improvement != null) " (${tile.improvement})" else ""} [${tile.position}]"
+            val button = tileName.toTextButton()
+            button.onClick {
+                if (tile in selectedTilesToGive) {
+                    selectedTilesToGive.remove(tile)
+                    button.color = Color.WHITE
+                } else {
+                    selectedTilesToGive.add(tile)
+                    button.color = Color.GREEN
+                }
+                updateInfluenceLabel()
+            }
+            table.add(button).colspan(2).row()
+        }
+
+        table.addSeparator()
+        table.add(influenceChangeLabel).colspan(2).row()
+
+        val confirmButton = "Confirm Exchange".toTextButton()
+        confirmButton.onClick {
+            val influenceChange = selectedTilesToGive.size * 30f - selectedTilesToDemand.size * 50f
+
+            // Check if we'd drop below minimum influence
+            if (currentInfluence + influenceChange < -60f) {
+                return@onClick // Don't allow exchange that would drop below minimum
+            }
+
+            // Execute demands: transfer CS tiles to nearest player city
+            for (tile in selectedTilesToDemand) {
+                val nearestPlayerCity = viewingCiv.cities.minByOrNull {
+                    it.getCenterTile().aerialDistanceTo(tile)
+                } ?: continue
+                nearestPlayerCity.expansion.takeOwnership(tile)
+            }
+
+            // Execute gives: transfer player tiles to nearest CS city
+            for (tile in selectedTilesToGive) {
+                val nearestCsCity = otherCiv.cities.minByOrNull {
+                    it.getCenterTile().aerialDistanceTo(tile)
+                } ?: continue
+                nearestCsCity.expansion.takeOwnership(tile)
+            }
+
+            // Apply influence change
+            otherCivDiplomacy.addInfluence(influenceChange)
+
+            // Refresh the diplomacy screen
+            diplomacyScreen.updateRightSide(otherCiv)
+        }
+        table.add(confirmButton).colspan(2).row()
+
+        return table
     }
 }

@@ -557,12 +557,14 @@ class GlobalUniquesTests {
     fun growthPercentBonusTest() {
         val civInfo = game.addCiv()
         val city = game.addCity(civInfo, game.getTile(HexCoord.Zero), true)
-        // City has 2 food from center -2 from pop, so total of 0
+        // Territorial Warfare: city center food = 2 * 0.25 = 0.5 (75% territory malus, no food building)
+        // Building adds +2 food. Pop eats 2. Total excess food = 0.5 + 2 - 2 = 0.5
+        // Growth bonus = 100% * 0.5 = 0.5
         val building = game.createBuilding("[+100]% growth [in all cities]", "[+2 Food]")
         city.cityConstructions.addBuilding(building)
 
         city.cityStats.update()
-        Assert.assertTrue(city.cityStats.finalStatList["[Buildings] ([Growth])"]!!.equals(Stats(food=2f)))
+        Assert.assertTrue(city.cityStats.finalStatList["[Buildings] ([Growth])"]!!.equals(Stats(food=0.5f)))
     }
 
     @Test

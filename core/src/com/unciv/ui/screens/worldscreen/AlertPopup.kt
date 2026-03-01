@@ -217,7 +217,21 @@ class AlertPopup(
             addSeparator()
 
             addRazeOption(city, mayAnnex = mayAnnex, conqueringCiv)
+            addSeparator()
+
+            // Territorial Warfare: convert to city-state option
+            addConvertToCityStateOption(city, conqueringCiv)
         }
+    }
+
+    private fun addConvertToCityStateOption(city: com.unciv.logic.city.City, conqueringCiv: com.unciv.logic.civilization.Civilization) {
+        val button = "Convert to City-State".toTextButton()
+        button.onActivation {
+            com.unciv.logic.city.managers.CityConquestFunctions(city).convertToCityState(conqueringCiv)
+            close()
+        }
+        button.keyShortcuts.add('s')
+        bottomTable.add(button).row()
     }
 
     private fun addDemandViolationNoticed(demand: Demand): Boolean {

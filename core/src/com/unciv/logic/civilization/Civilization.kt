@@ -193,6 +193,11 @@ class Civilization : IsPartOfGameInfoSerialization {
     var cities = listOf<City>()
     var citiesCreated = 0
 
+    /** Territorial Warfare: war experience bonus accumulates +1%/turn at war (max 30), decays -1%/turn at peace */
+    var warExperienceBonus = 0
+    /** Territorial Warfare: tracks turns since entering the Industrial era for logistic production growth */
+    var turnsInIndustrialEra = 0
+
     // Limit camera within explored region
     var exploredRegion = ExploredRegion()
 

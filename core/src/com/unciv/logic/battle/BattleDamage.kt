@@ -55,6 +55,18 @@ object BattleDamage {
             if (greatGeneralBonus != 0)
                 modifiers[greatGeneralName] = greatGeneralBonus
 
+            // Territorial Warfare: adjacency bonus (+20% for 2 adjacent allies, +40% for 3+)
+            val adjacentFriendlyMilitary = combatant.getTile().neighbors.count { neighbor ->
+                neighbor.militaryUnit != null && neighbor.militaryUnit!!.civ == civInfo
+            }
+            if (adjacentFriendlyMilitary >= 2) {
+                modifiers["Adjacent allies"] = if (adjacentFriendlyMilitary >= 3) 40 else 20
+            }
+
+            // Territorial Warfare: war experience bonus (+1% per turn of war, max +30%)
+            val warXpBonus = civInfo.warExperienceBonus
+            if (warXpBonus > 0) modifiers["War experience"] = warXpBonus
+
         } else if (combatant is CityCombatant) {
             for (unique in combatant.city.getMatchingUniques(UniqueType.StrengthForCities, conditionalState)) {
                 modifiers.add(getModifierStringFromUnique(unique), unique.params[0].toInt())

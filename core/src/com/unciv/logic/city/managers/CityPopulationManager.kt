@@ -56,7 +56,7 @@ class CityPopulationManager : IsPartOfGameInfoSerialization {
         foodRequired *= city.civ.gameInfo.speed.modifier
 
         if (city.civ.isCityState)
-            foodRequired *= 1.5f
+            foodRequired /= 3f // Territorial Warfare: city-state growth ×3 (replaces vanilla 1.5× penalty)
         if (!city.civ.isHuman())
             foodRequired *= city.civ.gameInfo.getDifficulty().aiCityGrowthModifier
         return foodRequired.toInt()

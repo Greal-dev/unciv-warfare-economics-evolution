@@ -43,9 +43,10 @@ class TileImprovement : RulesetStatsObject() {
         val buildTime = if (increase == 0f) 0f
         else (civInfo.gameInfo.speed.improvementBuildLengthModifier * turnsToBuild / increase)
 
-        return buildSpeedUniques.fold(buildTime) { calculatedTurnsToBuild, unique ->
+        // Territorial Warfare: improvement building/repair takes ×2 longer
+        return (buildSpeedUniques.fold(buildTime) { calculatedTurnsToBuild, unique ->
                 calculatedTurnsToBuild * unique.params[0].toPercent()
-            }.roundToInt()
+            } * 2f).roundToInt()
             .coerceAtLeast(1)
         // In some weird cases it was possible for something to take 0 turns, leading to it instead never finishing
     }

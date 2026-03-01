@@ -31,58 +31,44 @@ class CivInfoStatsForNextTurn(val civInfo: Civilization) {
     var statsForNextTurn = Stats()
 
     @Readonly
+    /** Territorial Warfare: unit maintenance = 1 gold × distance to nearest allied city.
+     *  Free if the unit is on a road connected to an allied city. */
     private fun getUnitMaintenance(): Int {
-        val baseUnitCost = 0.5f
-        var freeUnits = 3
-        for (unique in civInfo.getMatchingUniques(UniqueType.FreeUnits, civInfo.state)) {
-            freeUnits += unique.params[0].toInt()
+        if (civInfo.cities.isEmpty()) return 0
+
+        var totalMaintenance = 0f
+        // Cache connected tiles: all tiles reachable via roads from any city center
+        val connectedRoadTiles = HashSet<com.unciv.logic.map.HexCoord>()
+        for (city in civInfo.cities) {
+            val bfs = com.unciv.logic.map.BFS(city.getCenterTile()) { tile ->
+                tile.isCityCenter() || (tile.hasConnection(civInfo) && !tile.roadIsPillaged)
+            }
+            bfs.stepToEnd()
+            for (tile in bfs.getReachedTiles()) {
+                connectedRoadTiles.add(tile.position)
+            }
         }
 
-        var unitsToPayFor = civInfo.units.getCivUnits()
-        if (civInfo.hasUnique(UniqueType.UnitsInCitiesNoMaintenance))
-            unitsToPayFor = unitsToPayFor.filterNot {
-                it.getTile().isCityCenter() && it.canGarrison()
+        for (unit in civInfo.units.getCivUnits()) {
+            if (!unit.isMilitary()) continue
+
+            // Skip units whose tile hasn't been initialized yet (e.g. during addUnit in tests)
+            val unitTile = try { unit.currentTile } catch (_: UninitializedPropertyAccessException) { continue }
+
+            // If unit is on a road connected to a city, maintenance is 0
+            if (connectedRoadTiles.contains(unitTile.position)) continue
+
+            // Otherwise, maintenance = distance to nearest city
+            val nearestCityDist = civInfo.cities.minOf {
+                it.getCenterTile().aerialDistanceTo(unitTile)
             }
-
-        // Each unit starts with 1f aka 100% of cost, and then the discount is added.
-        // Note all discounts are in the form of -X%, such as -25 for 25% reduction
-
-        val costsToPay = ArrayList<Float>()
-
-        // We IGNORE the conditionals when we get them civ-wide, so we won't need to do the same thing for EVERY unit in the civ.
-        // This leads to massive memory and CPU time savings when calculating the maintenance!
-        val civwideDiscountUniques = civInfo.getMatchingUniques(UniqueType.UnitMaintenanceDiscount, GameContext.IgnoreConditionals)
-            .toList().asSequence()
-
-        for (unit in unitsToPayFor) {
-            val stateForConditionals = unit.cache.state
-            var unitMaintenance = 1f
-            val uniquesThatApply = unit.getMatchingUniques(
-                UniqueType.UnitMaintenanceDiscount,
-                stateForConditionals
-            ) + civwideDiscountUniques.filter { it.conditionalsApply(stateForConditionals) }
-            for (unique in uniquesThatApply) {
-                unitMaintenance *= unique.params[0].toPercent()
-            }
-            costsToPay.add(unitMaintenance)
+            totalMaintenance += nearestCityDist.toFloat()
         }
-
-        // Sort by descending maintenance, then drop most expensive X units to make them free
-        // If more free than units left, runs sum on empty sequence
-        costsToPay.sortDescending()
-        val numberOfUnitsToPayFor = max(0.0, costsToPay.asSequence().drop(freeUnits).sumOf { it.toDouble() } ).toFloat()
-
-        // as game progresses Maintenance cost rises
-        val turnLimit = civInfo.gameInfo.speed.numTotalTurns().toFloat()
-        val gameProgress = min(civInfo.gameInfo.turns / turnLimit, 1f)
-
-        var cost = baseUnitCost * numberOfUnitsToPayFor * (1 + gameProgress)
-        cost = cost.pow(1 + gameProgress / 3) // Why 3? To spread 1 to 1.33
 
         if (!civInfo.isHuman())
-            cost *= civInfo.gameInfo.getDifficulty().aiUnitMaintenanceModifier
+            totalMaintenance *= civInfo.gameInfo.getDifficulty().aiUnitMaintenanceModifier
 
-        return cost.toInt()
+        return totalMaintenance.toInt()
     }
 
     @Readonly

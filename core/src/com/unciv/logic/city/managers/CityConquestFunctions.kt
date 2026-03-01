@@ -114,7 +114,38 @@ class CityConquestFunctions(val city: City) {
 
         destroyBuildingsOnCapture()
 
+        // Territorial Warfare: only transfer the city center tile, not all territory.
+        // Redistribute non-center tiles to other cities of the old owner.
+        val nonCenterTilePositions = city.tiles.filter { it != city.location }
+        val otherOldCivCities = conqueredCiv.cities.filter { it != city }
+        for (tilePos in nonCenterTilePositions) {
+            val tile = city.civ.gameInfo.tileMap[tilePos]
+            city.expansion.relinquishOwnership(tile)
+            if (otherOldCivCities.isNotEmpty()) {
+                val nearestCity = otherOldCivCities.minByOrNull {
+                    it.getCenterTile().aerialDistanceTo(tile)
+                }!!
+                nearestCity.expansion.takeOwnership(tile)
+            }
+        }
+
         city.moveToCiv(receivingCiv)
+
+        // Territorial Warfare: if the conquered civ has no cities left, transfer ALL remaining territory
+        if (conqueredCiv.cities.isEmpty()) {
+            val gameInfo = city.civ.gameInfo
+            for (tile in gameInfo.tileMap.values) {
+                if (tile.getOwner() == conqueredCiv) {
+                    val nearestConquerorCity = receivingCiv.cities.minByOrNull {
+                        it.getCenterTile().aerialDistanceTo(tile)
+                    }
+                    if (nearestConquerorCity != null) {
+                        tile.getCity()?.expansion?.relinquishOwnership(tile)
+                        nearestConquerorCity.expansion.takeOwnership(tile)
+                    }
+                }
+            }
+        }
 
         Battle.destroyIfDefeated(conqueredCiv, conqueringCiv, city.location.toHexCoord())
 
@@ -266,8 +297,8 @@ class CityConquestFunctions(val city: City) {
             openBordersTrade.currentTrade.ourOffers.add(TradeOffer(Constants.openBorders, TradeOfferType.Agreement, speed = conqueringCiv.gameInfo.speed))
             openBordersTrade.acceptTrade(false)
         } else {
-            //Liberating a city state gives a large amount of influence, and peace
-            foundingCiv.getDiplomacyManagerOrMeet(conqueringCiv).setInfluence(90f)
+            // Territorial Warfare: liberating/returning a city-state gives 500 influence (was 90)
+            foundingCiv.getDiplomacyManagerOrMeet(conqueringCiv).setInfluence(500f)
             if (foundingCiv.isAtWarWith(conqueringCiv)) {
                 val tradeLogic = TradeLogic(foundingCiv, conqueringCiv)
                 tradeLogic.currentTrade.ourOffers.add(TradeOffer(Constants.peaceTreaty, TradeOfferType.Treaty, speed = conqueringCiv.gameInfo.speed))
@@ -352,6 +383,73 @@ class CityConquestFunctions(val city: City) {
 
         newCiv.cache.updateOurTiles()
         oldCiv.cache.updateOurTiles()
+    }
+
+    /**
+     * Territorial Warfare: convert a conquered city into an allied city-state.
+     * Creates a new city-state civilization, transfers the city to it, and sets 500 influence.
+     */
+    fun convertToCityState(conqueringCiv: Civilization) {
+        val gameInfo = city.civ.gameInfo
+        val ruleset = gameInfo.ruleset
+
+        // Find an unused city-state nation
+        val usedNations = gameInfo.civilizations.map { it.civName }.toSet()
+        val availableCsNation = ruleset.nations.values.firstOrNull {
+            it.isCityState && it.name !in usedNations
+        }
+
+        if (availableCsNation == null) {
+            // No available city-state nations - fall back to puppet
+            puppetCity(conqueringCiv)
+            return
+        }
+
+        val oldCiv = city.civ
+
+        // Diplomatic repercussions happen before city moves
+        diplomaticRepercussionsForConqueringCity(oldCiv, conqueringCiv)
+
+        // Create the new city-state civilization
+        val newCsCiv = Civilization(availableCsNation.name)
+        newCsCiv.playerType = com.unciv.logic.civilization.PlayerType.AI
+        newCsCiv.gameInfo = gameInfo
+
+        gameInfo.civilizations.add(newCsCiv)
+        newCsCiv.setNationTransient()
+        newCsCiv.cityStateFunctions.initCityState(ruleset, gameInfo.gameParameters.startingEra, emptySequence())
+
+        // Transfer the city via conquerCity
+        conquerCity(conqueringCiv, oldCiv, newCsCiv)
+
+        // Set up diplomacy with the conquering civ
+        newCsCiv.diplomacyFunctions.makeCivilizationsMeet(conqueringCiv)
+        newCsCiv.getDiplomacyManager(conqueringCiv)!!.setInfluence(500f)
+
+        // Make peace if at war
+        if (newCsCiv.isAtWarWith(conqueringCiv)) {
+            val tradeLogic = TradeLogic(newCsCiv, conqueringCiv)
+            tradeLogic.currentTrade.ourOffers.add(TradeOffer(Constants.peaceTreaty, TradeOfferType.Treaty, speed = gameInfo.speed))
+            tradeLogic.currentTrade.theirOffers.add(TradeOffer(Constants.peaceTreaty, TradeOfferType.Treaty, speed = gameInfo.speed))
+            tradeLogic.acceptTrade(false)
+        }
+
+        // Meet other civs that know the conquering civ
+        for (otherCiv in conqueringCiv.getKnownCivs()) {
+            if (!newCsCiv.knows(otherCiv))
+                newCsCiv.diplomacyFunctions.makeCivilizationsMeet(otherCiv)
+        }
+
+        city.isPuppet = false
+        city.removeFlag(CityFlags.Resistance)
+        city.cityStats.update()
+
+        conqueringCiv.addNotification(
+            "[${city.name}] has been converted to an allied city-state",
+            city.getCenterTile().position,
+            NotificationCategory.Diplomacy,
+            NotificationIcon.Diplomacy
+        )
     }
 
 }

@@ -17,6 +17,7 @@ import com.unciv.ui.components.MayaCalendar
 import com.unciv.ui.screens.worldscreen.status.NextTurnProgress
 import com.unciv.utils.Log
 import yairm210.purity.annotations.Readonly
+import kotlin.math.max
 import kotlin.math.min
 import kotlin.random.Random
 
@@ -316,8 +317,24 @@ class TurnManager(val civInfo: Civilization) {
 
         civInfo.temporaryUniques.endTurn()
 
+        // Territorial Warfare: update war experience bonus
+        if (civInfo.isAtWar()) {
+            civInfo.warExperienceBonus = min(30, civInfo.warExperienceBonus + 1)
+        } else {
+            civInfo.warExperienceBonus = max(0, civInfo.warExperienceBonus - 1)
+        }
+
+        // Territorial Warfare: track turns in industrial era for logistic production growth
+        val industrialEra = civInfo.gameInfo.ruleset.eras.values.firstOrNull { it.name == "Industrial era" }
+        if (industrialEra != null && civInfo.getEraNumber() >= industrialEra.eraNumber) {
+            civInfo.turnsInIndustrialEra++
+        }
+
         civInfo.goldenAges.endTurn(civInfo.getHappiness())
         civInfo.units.getCivUnits().forEach { UnitTurnManager(it).endTurn() }  // This is the most expensive part of endTurn
+
+        // Territorial Warfare: check for encircled neutral and enemy territory
+        com.unciv.logic.map.TerritoryEncirclementCheck.checkEncirclement(civInfo)
         civInfo.diplomacy.values.toList().forEach { it.nextTurn() } // we copy the diplomacy values so if it changes in-loop we won't crash
         civInfo.cache.updateHasActiveEnemyMovementPenalty()
 
