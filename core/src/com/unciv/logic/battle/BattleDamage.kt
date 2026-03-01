@@ -67,6 +67,15 @@ object BattleDamage {
             val warXpBonus = civInfo.warExperienceBonus
             if (warXpBonus > 0) modifiers["War experience"] = warXpBonus
 
+            // Territorial Warfare: ISI combat malus for distant units in crisis
+            if (civInfo.imperialStability < 40) {
+                val capital = civInfo.getCapital()
+                if (capital != null) {
+                    val distToCapital = combatant.getTile().aerialDistanceTo(capital.getCenterTile())
+                    if (distToCapital > 10) modifiers["Imperial instability"] = -20
+                }
+            }
+
         } else if (combatant is CityCombatant) {
             for (unique in combatant.city.getMatchingUniques(UniqueType.StrengthForCities, conditionalState)) {
                 modifiers.add(getModifierStringFromUnique(unique), unique.params[0].toInt())

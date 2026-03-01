@@ -14,6 +14,7 @@ import com.unciv.models.stats.Stat
 import com.unciv.models.stats.StatMap
 import com.unciv.models.stats.Stats
 import com.unciv.ui.components.extensions.toPercent
+import com.unciv.logic.civilization.managers.ImperialStabilityManager
 import com.unciv.utils.DebugUtils
 import yairm210.purity.annotations.InternalState
 import yairm210.purity.annotations.LocalState
@@ -238,6 +239,45 @@ class CityStats(val city: City) {
     private fun getStatPercentBonusesFromGoldenAge(isGoldenAge: Boolean): Stats? {
         if (!isGoldenAge) return null
         return Stats(production = 20f, culture = 20f)
+    }
+
+    /** Territorial Warfare: production/culture modifiers based on Imperial Stability Index */
+    @Readonly
+    private fun getStatPercentBonusesFromImperialStability(): Stats? {
+        val civ = city.civ
+        if (!civ.isMajorCiv()) return null
+
+        val tier = civ.stabilityManager.getTier()
+        val isConqueredCity = city.foundingCivObject != null && city.foundingCivObject != civ
+
+        val stats = Stats()
+        when (tier) {
+            ImperialStabilityManager.StabilityTier.GoldenAge -> {
+                stats.production = 10f
+                stats.culture = 10f
+            }
+            ImperialStabilityManager.StabilityTier.Stable -> return null
+            ImperialStabilityManager.StabilityTier.Tensions -> {
+                if (isConqueredCity) stats.production = -25f
+                else return null
+            }
+            ImperialStabilityManager.StabilityTier.Crisis -> {
+                if (isConqueredCity) stats.production = -50f
+                else return null
+            }
+            ImperialStabilityManager.StabilityTier.Collapse -> {
+                stats.production = -50f
+            }
+        }
+
+        // Renaissance bonus (additive)
+        val renaissanceBonus = civ.stabilityManager.getRenaissanceBonusPercent()
+        if (renaissanceBonus > 0f) {
+            stats.production += renaissanceBonus
+            stats.culture += renaissanceBonus
+        }
+
+        return if (stats.production == 0f && stats.culture == 0f) null else stats
     }
 
     @Readonly
@@ -494,6 +534,7 @@ class CityStats(val city: City) {
         newStatsBonusTree.addStats(getStatPercentBonusesFromRailroad(), "Railroad")
         newStatsBonusTree.addStats(getStatPercentBonusesFromPuppetCity(), "Puppet City")
         newStatsBonusTree.addStats(getStatPercentBonusesFromUnitSupply(), "Unit Supply")
+        newStatsBonusTree.addStats(getStatPercentBonusesFromImperialStability(), "Imperial Stability")
         newStatsBonusTree.add(getStatsPercentBonusesFromUniquesBySource(currentConstruction))
         
         val localUniqueCache = LocalUniqueCache()

@@ -92,6 +92,11 @@ object DiplomacyTurnManager {
             setInfluence(min(restingPoint, influence + increment))
         }
 
+        // Territorial Warfare: unstable empires lose city-state influence
+        if (otherCiv.isMajorCiv() && otherCiv.imperialStability < 40 && influence > 0) {
+            setInfluence(max(0f, influence - 5f))
+        }
+
         if (!civInfo.isDefeated()) { // don't display city state relationship notifications when the city state is currently defeated
             val notificationActions = civInfo.cityStateFunctions.getNotificationActions()
             if (getTurnsToRelationshipChange() == 1) {

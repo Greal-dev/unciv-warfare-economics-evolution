@@ -83,6 +83,9 @@ class Civilization : IsPartOfGameInfoSerialization {
     var threatManager = ThreatManager(this)
 
     @Transient
+    var stabilityManager = ImperialStabilityManager(this)
+
+    @Transient
     var diplomacyFunctions = DiplomacyFunctions(this)
 
     @Transient
@@ -197,6 +200,15 @@ class Civilization : IsPartOfGameInfoSerialization {
     var warExperienceBonus = 0
     /** Territorial Warfare: tracks turns since entering the Industrial era for logistic production growth */
     var turnsInIndustrialEra = 0
+
+    /** Territorial Warfare: Imperial Stability Index (0-100), starts in Stable tier (60-79) */
+    var imperialStability = 70
+    /** Territorial Warfare: turns remaining for the Renaissance bonus after recovering from crisis */
+    var renaissanceTurnsRemaining = 0
+    /** Territorial Warfare: tracks if this civ was recently in crisis (ISI < 40) for Renaissance detection */
+    var wasInCrisis = false
+    /** Territorial Warfare: number of military units lost this turn, reset each turn */
+    var unitsLostThisTurn = 0
 
     // Limit camera within explored region
     var exploredRegion = ExploredRegion()
@@ -878,6 +890,7 @@ class Civilization : IsPartOfGameInfoSerialization {
         ruinsManager.setTransients(this)
         espionageManager.setTransients(this)
         victoryManager.civInfo = this
+        stabilityManager = ImperialStabilityManager(this)
 
         for (diplomacyManager in diplomacy.values) {
             diplomacyManager.civInfo = this

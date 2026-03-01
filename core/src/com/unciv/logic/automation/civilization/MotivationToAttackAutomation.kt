@@ -52,6 +52,12 @@ object MotivationToAttackAutomation {
         modifiers.add(Pair("Concurrent wars", -civInfo.getCivsAtWarWith().count { it.isMajorCiv() && it != targetCiv } * 20f))
         modifiers.add(Pair("Their concurrent wars", targetCiv.getCivsAtWarWith().count { it.isMajorCiv() } * 3f))
 
+        // Territorial Warfare: exploit target's instability, avoid attacking when unstable
+        if (targetCiv.isMajorCiv() && targetCiv.imperialStability < 40)
+            modifiers.add(Pair("Target instability", ((40 - targetCiv.imperialStability) / 4f)))
+        if (civInfo.imperialStability < 40)
+            modifiers.add(Pair("Own instability", -5f * personality.inverseScaledFocus(PersonalityValue.DeclareWar)))
+
         modifiers.add(Pair("Their allies", getDefensivePactAlliesScore(targetCiv, civInfo, baseForce, ourCombatStrength)))
 
         if (civInfo.threatManager.getNeighboringCivilizations().none { it != targetCiv && it.isMajorCiv()

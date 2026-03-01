@@ -192,12 +192,20 @@ object Battle {
             if (attacker is MapUnitCombatant) triggerVictoryUniques(attacker, defender, attackedTile)
             triggerDefeatUniques(defender, attacker, attackedTile)
 
+            // Territorial Warfare: track unit losses for ISI
+            if (defender.getCivInfo().isMajorCiv())
+                defender.getCivInfo().unitsLostThisTurn++
+
         } else if (attacker.isDefeated() && attacker is MapUnitCombatant && !attacker.unit.isCivilian()) {
             tryEarnFromKilling(defender, attacker)
             tryHealAfterKilling(defender)
 
             if (defender is MapUnitCombatant) triggerVictoryUniques(defender, attacker, attackedTile)
             triggerDefeatUniques(attacker, defender, attackedTile)
+
+            // Territorial Warfare: track unit losses for ISI
+            if (attacker.getCivInfo().isMajorCiv())
+                attacker.getCivInfo().unitsLostThisTurn++
         }
     }
 

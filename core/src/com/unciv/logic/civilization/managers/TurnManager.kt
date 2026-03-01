@@ -41,6 +41,7 @@ class TurnManager(val civInfo: Civilization) {
 
         civInfo.civConstructions.startTurn()
         civInfo.attacksSinceTurnStart.clear()
+        civInfo.unitsLostThisTurn = 0
         civInfo.updateStatsForNextTurn() // for things that change when turn passes e.g. golden age, city state influence
 
         // Do this after updateStatsForNextTurn but before cities.startTurn
@@ -63,6 +64,35 @@ class TurnManager(val civInfo: Civilization) {
 
         civInfo.cache.updateViewableTiles() // adds explored tiles so that the units will be able to perform automated actions better
         civInfo.cache.updateCitiesConnectedToCapital()
+
+        // Territorial Warfare: Imperial Stability Index
+        if (civInfo.isMajorCiv() && civInfo.cities.isNotEmpty()) {
+            val previousISI = civInfo.imperialStability
+            civInfo.imperialStability = civInfo.stabilityManager.calculateISI()
+            civInfo.stabilityManager.checkRenaissanceTransition(previousISI, civInfo.imperialStability)
+            civInfo.stabilityManager.decrementRenaissance()
+            civInfo.stabilityManager.checkForRevolt()
+
+            // Notify on tier change
+            val previousTier = ImperialStabilityManager.StabilityTier.fromISI(previousISI)
+            val newTier = civInfo.stabilityManager.getTier()
+            if (newTier != previousTier) {
+                val message = when (newTier) {
+                    ImperialStabilityManager.StabilityTier.GoldenAge ->
+                        "Imperial Golden Age! Our empire is thriving! (ISI: ${civInfo.imperialStability})"
+                    ImperialStabilityManager.StabilityTier.Stable ->
+                        "Our empire has stabilized. (ISI: ${civInfo.imperialStability})"
+                    ImperialStabilityManager.StabilityTier.Tensions ->
+                        "Tensions are rising across the empire! (ISI: ${civInfo.imperialStability})"
+                    ImperialStabilityManager.StabilityTier.Crisis ->
+                        "Imperial crisis! Cities may revolt! (ISI: ${civInfo.imperialStability})"
+                    ImperialStabilityManager.StabilityTier.Collapse ->
+                        "Empire is collapsing! Sécessions imminent! (ISI: ${civInfo.imperialStability})"
+                }
+                civInfo.addNotification(message, NotificationCategory.General)
+            }
+        }
+
         startTurnFlags()
         updateRevolts()
 
