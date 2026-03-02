@@ -257,12 +257,27 @@ From the **Medieval era** onwards, proximity to other civilizations' capitals gr
 | 6 | +40% |
 | 10+ | +0% |
 
-- **Cumulative:** bonuses from all nearby capitals are summed. Example: one capital at 4 tiles (+60%) and another at 6 tiles (+40%) = +100% total production bonus.
+- **Cumulative:** bonuses from all nearby capitals are summed. Example: one capital at 4 tiles (+60%) and another at 6 tiles (+40%) = +100% total bonus.
+- Applies to **production and science**.
 - **Conditions for a capital to count:** the capital must still belong to its founding civilization. If the capital is captured by another civ or converted to a city-state, the bonus disappears.
 - Only applies to **major civilizations** (not city-states).
 - Represents the economic benefits of trade, cultural exchange, and competition between nearby empires.
 
-### 4.6 — Golden Age Progressive Bonus
+### 4.6 — Tech Maintenance & Regression
+
+Every researched technology costs **1% of its base research cost per turn** in science to maintain. If a civilization cannot generate enough science to cover this cost:
+
+1. **Gold-to-science conversion:** Excess gold is automatically converted 1:1 to cover the science deficit.
+2. **Tech regression:** If science remains negative even after gold conversion, the civilization **loses its most advanced technology** each turn.
+
+**Details:**
+- Maintenance cost = `Σ (tech.baseCost × 0.01)` for each researched tech, scaled by game speed
+- Only non-repeatable technologies count
+- Tech regression removes the most advanced tech that is not a prerequisite for another researched tech
+- This creates a natural ceiling on technological advancement proportional to a civilization's scientific output
+- A player must balance expanding their tech tree with maintaining sufficient science infrastructure
+
+### 4.7 — Golden Age Progressive Bonus
 
 The Golden Age (ISI 80+) grants a **progressive production and gold bonus** that ramps up, plateaus, then fades:
 
@@ -574,12 +589,27 @@ A partir du **Moyen Age**, la proximite des capitales d'autres civilisations acc
 | 6 | +40% |
 | 10+ | +0% |
 
-- **Cumulatif :** les bonus de toutes les capitales proches sont additionnes. Exemple : une capitale a 4 cases (+60%) et une autre a 6 cases (+40%) = +100% de bonus de production total.
+- **Cumulatif :** les bonus de toutes les capitales proches sont additionnes. Exemple : une capitale a 4 cases (+60%) et une autre a 6 cases (+40%) = +100% de bonus total.
+- S'applique a la **production** et la **science**.
 - **Conditions pour qu'une capitale compte :** la capitale doit toujours appartenir a sa civilisation fondatrice. Si la capitale est capturee par une autre civilisation ou convertie en cite-etat, le bonus disparait.
 - S'applique uniquement aux **civilisations majeures** (pas aux cites-etats).
 - Represente les benefices economiques du commerce, des echanges culturels et de la competition entre empires voisins.
 
-### 4.6 — Bonus progressif de l'Age d'Or
+### 4.6 — Maintenance technologique et regression
+
+Chaque technologie recherchee coute **1% de son cout de recherche de base par tour** en science pour etre maintenue. Si une civilisation ne peut pas generer assez de science :
+
+1. **Conversion or → science :** L'or excedentaire est automatiquement converti 1:1 pour couvrir le deficit de science.
+2. **Regression technologique :** Si la science reste negative meme apres conversion de l'or, la civilisation **perd sa technologie la plus avancee** chaque tour.
+
+**Details :**
+- Cout de maintenance = `Σ (tech.coutDeBase x 0.01)` pour chaque tech recherchee, ajuste par la vitesse de jeu
+- Seules les technologies non-repetables comptent
+- La regression retire la tech la plus avancee qui n'est pas prerequis d'une autre tech recherchee
+- Cela cree un plafond naturel d'avancement technologique proportionnel a la production scientifique
+- Le joueur doit equilibrer l'expansion de son arbre technologique avec le maintien d'infrastructures scientifiques suffisantes
+
+### 4.7 — Bonus progressif de l'Age d'Or
 
 L'Age d'Or (ISI 80+) accorde un **bonus progressif de production et d'or** qui monte, stagne, puis decroit :
 
@@ -773,4 +803,4 @@ The most impactful additions would be **R1 (Cultural Assimilation)**, **R3 (War 
 
 ---
 
-*611 tests passing. 12 files modified. 30+ interlocking game mechanics.*
+*611 tests passing. 14 files modified. 35+ interlocking game mechanics.*

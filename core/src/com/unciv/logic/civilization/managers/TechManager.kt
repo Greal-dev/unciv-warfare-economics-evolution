@@ -249,6 +249,12 @@ class TechManager : IsPartOfGameInfoSerialization {
 
     fun endTurn(scienceForNewTurn: Int) {
         addCurrentScienceToScienceOfLast8Turns(scienceForNewTurn)
+
+        // Territorial Warfare: tech regression — if net science is negative, lose the most advanced tech
+        if (scienceForNewTurn < 0 && techsResearched.isNotEmpty()) {
+            checkForTechRegression()
+        }
+
         if (currentTechnologyName() == null) return
 
         var finalScienceToAdd = scienceForNewTurn
@@ -267,6 +273,37 @@ class TechManager : IsPartOfGameInfoSerialization {
         }
 
         addScience(finalScienceToAdd)
+    }
+
+    /** Territorial Warfare: when science is negative, lose the most advanced non-prerequisite tech */
+    private fun checkForTechRegression() {
+        val ruleset = getRuleset()
+
+        // Find the most advanced tech (highest column number) that can be safely removed
+        // A tech can be removed only if no other researched tech depends on it
+        val removableTech = techsResearched
+            .mapNotNull { ruleset.technologies[it] }
+            .filter { tech ->
+                // Don't remove techs that are prerequisites for other researched techs
+                techsResearched.none { otherName ->
+                    val other = ruleset.technologies[otherName]
+                    other != null && other.prerequisites.contains(tech.name)
+                }
+            }
+            .maxByOrNull { it.column?.columnNumber ?: 0 }
+            ?: return
+
+        // Remove the tech
+        techsResearched.remove(removableTech.name)
+        researchedTechnologies = researchedTechnologies.filter { it.name != removableTech.name } as ArrayList<Technology>
+        techsInProgress.remove(removableTech.name)
+        updateTransientBooleans()
+        civInfo.cache.updateCivResources()
+
+        civInfo.addNotification(
+            "We have lost the knowledge of [${removableTech.name}] due to insufficient science!",
+            NotificationCategory.General, NotificationIcon.Science
+        )
     }
 
     fun addScience(scienceGet: Int) {

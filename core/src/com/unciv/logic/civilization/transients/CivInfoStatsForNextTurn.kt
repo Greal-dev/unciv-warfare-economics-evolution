@@ -153,6 +153,21 @@ class CivInfoStatsForNextTurn(val civInfo: Civilization) {
     /** Per each supply missing, a player gets -10% production. Capped at -70%. */
     @Readonly fun getUnitSupplyProductionPenalty(): Float = -min(getUnitSupplyDeficit() * 10f, 70f)
 
+    /** Territorial Warfare: tech maintenance = 1% of base cost per researched tech */
+    @Readonly
+    private fun getTechMaintenanceCost(): Float {
+        if (civInfo.cities.isEmpty()) return 0f
+        val ruleset = civInfo.gameInfo.ruleset
+        var totalMaintenance = 0f
+        for (techName in civInfo.tech.techsResearched) {
+            val tech = ruleset.technologies[techName] ?: continue
+            if (tech.isContinuallyResearchable()) continue
+            totalMaintenance += tech.cost * 0.01f
+        }
+        totalMaintenance *= civInfo.gameInfo.speed.scienceCostModifier
+        return totalMaintenance
+    }
+
     @Readonly
     fun getStatMapForNextTurn(): StatMap {
         val statMap = StatMap()
@@ -182,6 +197,10 @@ class CivInfoStatsForNextTurn(val civInfo: Civilization) {
         statMap["Transportation upkeep"] = getTransportationUpkeep() * -1
         statMap["Unit upkeep"] = Stats(gold = -getUnitMaintenance().toFloat())
 
+        // Territorial Warfare: tech maintenance = 1% of each researched tech's base cost
+        val techMaintenance = getTechMaintenanceCost()
+        if (techMaintenance > 0f)
+            statMap["Tech maintenance"] = Stats(science = -techMaintenance)
 
         if (civInfo.getHappiness() > 0) {
             val excessHappinessConversion = Stats()
@@ -200,6 +219,16 @@ class CivInfoStatsForNextTurn(val civInfo: Civilization) {
             )// Leave at least 1
             statMap["Treasury deficit"] = Stats(science = scienceDeficit)
         }
+
+        // Territorial Warfare: convert excess gold to science 1:1 to cover tech maintenance deficit
+        val netScience = statMap.values.map { it.science }.sum()
+        val netGold = statMap.values.map { it.gold }.sum()
+        if (netScience < 0 && netGold > 0) {
+            // Convert just enough gold to zero out the science deficit, up to available gold
+            val conversion = min(-netScience, netGold)
+            statMap["Gold → Science"] = Stats(science = conversion, gold = -conversion)
+        }
+
         val goldDifferenceFromTrade = civInfo.diplomacy.values.sumOf { it.goldPerTurn() }
         if (goldDifferenceFromTrade != 0)
             statMap["Trade"] = Stats(gold = goldDifferenceFromTrade.toFloat())

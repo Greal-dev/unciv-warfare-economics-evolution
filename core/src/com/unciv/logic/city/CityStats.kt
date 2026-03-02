@@ -297,7 +297,7 @@ class CityStats(val city: City) {
             totalBonus += bonus
         }
 
-        return if (totalBonus == 0f) null else Stats(production = totalBonus)
+        return if (totalBonus == 0f) null else Stats(production = totalBonus, science = totalBonus)
     }
 
     /** Territorial Warfare: production/culture modifiers based on Imperial Stability Index */
