@@ -69,8 +69,8 @@ class TechManager : IsPartOfGameInfoSerialization {
     private var overflowScience = 0
     var techsInProgress = HashMap<String, Int>()
 
-    /** In civ IV, you can auto-convert a certain percentage of gold in cities to science */
-    var goldPercentConvertedToScience = 0.6f
+    /** Gold-to-science conversion slider (0.0 to 1.0, step 0.1) */
+    var goldPercentConvertedToScience = 0f
 
     //region state-changing functions
     fun clone(): TechManager {

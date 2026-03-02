@@ -220,15 +220,6 @@ class CivInfoStatsForNextTurn(val civInfo: Civilization) {
             statMap["Treasury deficit"] = Stats(science = scienceDeficit)
         }
 
-        // Territorial Warfare: convert excess gold to science 1:1 to cover tech maintenance deficit
-        val netScience = statMap.values.map { it.science }.sum()
-        val netGold = statMap.values.map { it.gold }.sum()
-        if (netScience < 0 && netGold > 0) {
-            // Convert just enough gold to zero out the science deficit, up to available gold
-            val conversion = min(-netScience, netGold)
-            statMap["Gold → Science"] = Stats(science = conversion, gold = -conversion)
-        }
-
         val goldDifferenceFromTrade = civInfo.diplomacy.values.sumOf { it.goldPerTurn() }
         if (goldDifferenceFromTrade != 0)
             statMap["Trade"] = Stats(gold = goldDifferenceFromTrade.toFloat())
