@@ -71,7 +71,7 @@ The ISI is a score from **0 to 100** that measures how well a civilization can h
 
 | Tier | ISI Range | Effects |
 |------|-----------|---------|
-| **Golden Age** | 80–100 | +10% production, +10% culture |
+| **Golden Age** | 80–100 | Progressive production & gold bonus (see §4.5) |
 | **Stable** | 60–79 | No modifiers (default start at 70) |
 | **Tensions** | 40–59 | -25% production in conquered cities |
 | **Crisis** | 20–39 | -50% production in conquered cities, -20% distant combat, 5%/turn revolt chance, -5 CS influence/turn |
@@ -231,6 +231,34 @@ multiplier = (-115 + 430 / (1 + e^(-0.0065 × (turns - 1)))) / 100
 
 This creates an S-curve: slow ramp-up, rapid growth, then plateau.
 
+### 4.4 — Conquest & Expansion Production Malus
+
+Expanding your empire comes at a production cost:
+
+| Factor | Malus | Recovery |
+|--------|-------|----------|
+| **Conquered city** | -30% production in that city | +0.5%/turn (60 turns to full recovery) |
+| **Expansion** | -5% production per city beyond the first | Permanent (structural overhead) |
+
+- **Conquest malus** applies to any city founded by a different civilization (including reconquered cities). It represents the economic disruption of integrating foreign territories.
+- **Expansion malus** is global: every city in the empire suffers -5% production for each city beyond the first. A 4-city empire has -15% production in all cities. This models administrative overhead.
+- Both maluses stack with ISI tier penalties.
+
+### 4.5 — Golden Age Progressive Bonus
+
+The Golden Age (ISI 80+) grants a **progressive production and gold bonus** that ramps up, plateaus, then fades:
+
+| Phase | Duration | Bonus |
+|-------|----------|-------|
+| **Ramp-up** | First 5 turns | +2% per turn elapsed (2% → 4% → 6% → 8% → 10%) |
+| **Plateau** | Middle turns | +10% production and gold |
+| **Ramp-down** | Last 5 turns | -2% per turn remaining (10% → 8% → 6% → 4% → 2%) |
+
+- Applies to **production** and **gold** (not culture).
+- A 10-turn golden age: 5 turns ramp-up → 0 turns plateau → 5 turns ramp-down.
+- A 20-turn golden age: 5 turns ramp-up → 10 turns plateau → 5 turns ramp-down.
+- This prevents sudden economic spikes and encourages longer golden ages.
+
 ---
 
 ## 5. City-States
@@ -342,7 +370,7 @@ L'ISI est un score de **0 a 100** qui mesure la capacite d'une civilisation a ma
 
 | Niveau | Plage ISI | Effets |
 |--------|-----------|--------|
-| **Age d'Or** | 80–100 | +10% production, +10% culture |
+| **Age d'Or** | 80–100 | Bonus progressif production et or (voir §4.5) |
 | **Stable** | 60–79 | Aucun modificateur (depart par defaut a 70) |
 | **Tensions** | 40–59 | -25% production dans les villes conquises |
 | **Crise** | 20–39 | -50% production villes conquises, -20% combat lointain, 5%/tour chance de revolte, -5 influence CS/tour |
@@ -501,6 +529,34 @@ multiplicateur = (-115 + 430 / (1 + e^(-0.0065 x (tours - 1)))) / 100
 ```
 
 Cela cree une courbe en S : montee lente, croissance rapide, puis plateau.
+
+### 4.4 — Malus de production de conquete et d'expansion
+
+L'expansion de l'empire a un cout en production :
+
+| Facteur | Malus | Recuperation |
+|---------|-------|--------------|
+| **Ville conquise** | -30% production dans cette ville | +0.5%/tour (60 tours pour recuperation totale) |
+| **Expansion** | -5% production par ville au-dela de la premiere | Permanent (surcout administratif) |
+
+- **Malus de conquete** s'applique a toute ville fondee par une autre civilisation (y compris les villes reconquises). Il represente la perturbation economique de l'integration de territoires etrangers.
+- **Malus d'expansion** est global : chaque ville de l'empire subit -5% de production pour chaque ville au-dela de la premiere. Un empire de 4 villes a -15% de production dans toutes ses villes. Cela modelise le surcout administratif.
+- Les deux malus se cumulent avec les penalites de niveau ISI.
+
+### 4.5 — Bonus progressif de l'Age d'Or
+
+L'Age d'Or (ISI 80+) accorde un **bonus progressif de production et d'or** qui monte, stagne, puis decroit :
+
+| Phase | Duree | Bonus |
+|-------|-------|-------|
+| **Montee** | 5 premiers tours | +2% par tour ecoule (2% → 4% → 6% → 8% → 10%) |
+| **Plateau** | Tours centraux | +10% production et or |
+| **Descente** | 5 derniers tours | -2% par tour restant (10% → 8% → 6% → 4% → 2%) |
+
+- S'applique a la **production** et l'**or** (pas la culture).
+- Un age d'or de 10 tours : 5 tours de montee → 0 tours de plateau → 5 tours de descente.
+- Un age d'or de 20 tours : 5 tours de montee → 10 tours de plateau → 5 tours de descente.
+- Cela evite les pics economiques soudains et encourage les ages d'or plus longs.
 
 ---
 
@@ -681,4 +737,4 @@ The most impactful additions would be **R1 (Cultural Assimilation)**, **R3 (War 
 
 ---
 
-*599 tests passing. 10 files modified. 25+ interlocking game mechanics.*
+*611 tests passing. 12 files modified. 30+ interlocking game mechanics.*

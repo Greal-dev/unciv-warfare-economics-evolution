@@ -235,10 +235,36 @@ class CityStats(val city: City) {
         return sourceToStats
     }
 
-    @Pure
+    /** Territorial Warfare: progressive golden age bonus (ramp 2%/turn over 5 turns, plateau 10%, decay 5 turns) */
+    @Readonly
     private fun getStatPercentBonusesFromGoldenAge(isGoldenAge: Boolean): Stats? {
         if (!isGoldenAge) return null
-        return Stats(production = 20f, culture = 20f)
+        val bonus = city.civ.goldenAges.getProgressiveBonus()
+        if (bonus <= 0f) return null
+        return Stats(production = bonus, gold = bonus)
+    }
+
+    /** Territorial Warfare: -30% production per conquered city (recovers 0.5%/turn) + -5% global per city owned */
+    @Readonly
+    private fun getStatPercentBonusesFromConquestAndExpansion(): Stats? {
+        val civ = city.civ
+        if (!civ.isMajorCiv()) return null
+
+        var productionMalus = 0f
+
+        // Conquest malus: -30% decaying at 0.5%/turn (60 turns to recover)
+        val isConqueredCity = city.foundingCivObject != null && city.foundingCivObject != civ
+        if (isConqueredCity) {
+            val turnsSinceAcquired = civ.gameInfo.turns - city.turnAcquired
+            val conquestPenalty = (30f - 0.5f * turnsSinceAcquired).coerceAtLeast(0f)
+            productionMalus -= conquestPenalty
+        }
+
+        // Expansion malus: -5% per city beyond the first
+        if (civ.cities.size > 1)
+            productionMalus -= 5f * (civ.cities.size - 1)
+
+        return if (productionMalus == 0f) null else Stats(production = productionMalus)
     }
 
     /** Territorial Warfare: production/culture modifiers based on Imperial Stability Index */
@@ -534,6 +560,7 @@ class CityStats(val city: City) {
         newStatsBonusTree.addStats(getStatPercentBonusesFromRailroad(), "Railroad")
         newStatsBonusTree.addStats(getStatPercentBonusesFromPuppetCity(), "Puppet City")
         newStatsBonusTree.addStats(getStatPercentBonusesFromUnitSupply(), "Unit Supply")
+        newStatsBonusTree.addStats(getStatPercentBonusesFromConquestAndExpansion(), "Conquest & Expansion")
         newStatsBonusTree.addStats(getStatPercentBonusesFromImperialStability(), "Imperial Stability")
         newStatsBonusTree.add(getStatsPercentBonusesFromUniquesBySource(currentConstruction))
         

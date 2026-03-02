@@ -18,16 +18,37 @@ class GoldenAgeManager : IsPartOfGameInfoSerialization {
     var storedHappiness = 0
     private var numberOfGoldenAges = 0
     var turnsLeftForCurrentGoldenAge = 0
+    /** Territorial Warfare: total duration of current golden age (for progressive bonus curve) */
+    var totalGoldenAgeTurns = 0
 
     fun clone(): GoldenAgeManager {
         val toReturn = GoldenAgeManager()
         toReturn.numberOfGoldenAges = numberOfGoldenAges
         toReturn.storedHappiness = storedHappiness
         toReturn.turnsLeftForCurrentGoldenAge = turnsLeftForCurrentGoldenAge
+        toReturn.totalGoldenAgeTurns = totalGoldenAgeTurns
         return toReturn
     }
 
     @Readonly fun isGoldenAge(): Boolean = turnsLeftForCurrentGoldenAge > 0
+
+    /** Territorial Warfare: progressive golden age bonus (ramp up 5 turns, plateau, ramp down 5 turns).
+     *  Returns a percentage (0-10) for production/gold. */
+    @Readonly fun getProgressiveBonus(): Float {
+        if (!isGoldenAge() || totalGoldenAgeTurns <= 0) return 0f
+        val turnsElapsed = totalGoldenAgeTurns - turnsLeftForCurrentGoldenAge  // 0-based
+        val rampUp = 5
+        val rampDown = 5
+
+        return when {
+            // Ramp up phase: +2% per turn elapsed (turn 0→2%, turn 1→4%, ..., turn 4→10%)
+            turnsElapsed < rampUp -> 2f * (turnsElapsed + 1)
+            // Ramp down phase: last 5 turns
+            turnsLeftForCurrentGoldenAge <= rampDown -> 2f * turnsLeftForCurrentGoldenAge
+            // Plateau: 10%
+            else -> 10f
+        }
+    }
     
     fun addHappiness(amount: Int) {
         storedHappiness += amount
@@ -52,6 +73,7 @@ class GoldenAgeManager : IsPartOfGameInfoSerialization {
 
     fun enterGoldenAge(unmodifiedNumberOfTurns: Int = 10) {
         turnsLeftForCurrentGoldenAge += calculateGoldenAgeLength(unmodifiedNumberOfTurns)
+        totalGoldenAgeTurns = turnsLeftForCurrentGoldenAge
         civInfo.addNotification("You have entered a Golden Age!",
             CivilopediaAction("Tutorial/Golden Age"),
             NotificationCategory.General, "StatIcons/Happiness")

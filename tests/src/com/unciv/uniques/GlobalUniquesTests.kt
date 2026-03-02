@@ -540,11 +540,12 @@ class GlobalUniquesTests {
         val buildingToConstruct = game.createBuilding()
         city2.cityConstructions.addToQueue(buildingToConstruct.name)
         city2.cityStats.update()
-        Assert.assertTrue(city2.cityStats.statPercentBonusTree.totalStats.production == 0f)
+        // Territorial Warfare: -5% expansion malus per city beyond first (2 cities = -5%)
+        Assert.assertTrue(city2.cityStats.statPercentBonusTree.totalStats.production == -5f)
 
         city.cityConstructions.addBuilding(buildingToConstruct)
         city2.cityStats.update()
-        Assert.assertTrue(city2.cityStats.statPercentBonusTree.totalStats.production == 300f)
+        Assert.assertTrue(city2.cityStats.statPercentBonusTree.totalStats.production == 295f)
     }
 
     //endregion
