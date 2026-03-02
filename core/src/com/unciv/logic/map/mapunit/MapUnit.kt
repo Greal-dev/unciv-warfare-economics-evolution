@@ -965,7 +965,9 @@ class MapUnit : IsPartOfGameInfoSerialization {
         }
 
         // Territorial Warfare: military units claim neutral/enemy territory (only during actual movement)
-        if (isActualMovement && isMilitary() && !tile.isCityCenter() && civ.cities.isNotEmpty()) {
+        // Embarked land units cannot claim water tiles
+        val canClaimThisTile = !(tile.isWater && isEmbarked())
+        if (isActualMovement && isMilitary() && !tile.isCityCenter() && civ.cities.isNotEmpty() && canClaimThisTile) {
             val tileOwner = tile.getOwner()
             if (tileOwner == null && !hasClaimedNeutralTileThisTurn) {
                 // Claim neutral tile - limited to 1 per turn per unit

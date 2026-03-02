@@ -116,12 +116,14 @@ class TechManager : IsPartOfGameInfoSerialization {
         for (unique in civInfo.getMatchingUniques(UniqueType.LessTechCost)) techCost *= unique.params[0].toPercent()
         techCost *= 1 + cityModifier
 
-        // Territorial Warfare: in war, military tech costs /2, civilian tech costs ×2
+        // Territorial Warfare: war/peace tech cost modifiers
+        val isMilitaryTech = civInfo.gameInfo.ruleset.units.values.any { unit ->
+            unit.isMilitary && unit.requiredTech == techName
+        }
         if (civInfo.isAtWar()) {
-            val isMilitaryTech = civInfo.gameInfo.ruleset.units.values.any { unit ->
-                unit.isMilitary && unit.requiredTech == techName
-            }
-            techCost *= if (isMilitaryTech) 0.5f else 2.0f
+            techCost *= if (isMilitaryTech) 0.5f else 2.0f  // War: military ÷2, civilian ×2
+        } else {
+            if (isMilitaryTech) techCost *= 2.0f             // Peace: military ×2
         }
 
         return techCost.toInt()
