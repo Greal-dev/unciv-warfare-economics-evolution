@@ -244,7 +244,25 @@ Expanding your empire comes at a production cost:
 - **Expansion malus** is global: every city in the empire suffers -5% production for each city beyond the first. A 4-city empire has -15% production in all cities. This models administrative overhead.
 - Both maluses stack with ISI tier penalties.
 
-### 4.5 — Golden Age Progressive Bonus
+### 4.5 — Capital Proximity Production Bonus
+
+From the **Medieval era** onwards, proximity to other civilizations' capitals grants a cumulative production bonus to all your cities:
+
+**Formula per capital:** `Bonus = 100 - (distance × 10)` (minimum 0%)
+
+| Distance (tiles) | Bonus |
+|-------------------|-------|
+| 1 | +90% |
+| 4 | +60% |
+| 6 | +40% |
+| 10+ | +0% |
+
+- **Cumulative:** bonuses from all nearby capitals are summed. Example: one capital at 4 tiles (+60%) and another at 6 tiles (+40%) = +100% total production bonus.
+- **Conditions for a capital to count:** the capital must still belong to its founding civilization. If the capital is captured by another civ or converted to a city-state, the bonus disappears.
+- Only applies to **major civilizations** (not city-states).
+- Represents the economic benefits of trade, cultural exchange, and competition between nearby empires.
+
+### 4.6 — Golden Age Progressive Bonus
 
 The Golden Age (ISI 80+) grants a **progressive production and gold bonus** that ramps up, plateaus, then fades:
 
@@ -543,7 +561,25 @@ L'expansion de l'empire a un cout en production :
 - **Malus d'expansion** est global : chaque ville de l'empire subit -5% de production pour chaque ville au-dela de la premiere. Un empire de 4 villes a -15% de production dans toutes ses villes. Cela modelise le surcout administratif.
 - Les deux malus se cumulent avec les penalites de niveau ISI.
 
-### 4.5 — Bonus progressif de l'Age d'Or
+### 4.5 — Bonus de production par proximite des capitales
+
+A partir du **Moyen Age**, la proximite des capitales d'autres civilisations accorde un bonus de production cumulatif a toutes vos villes :
+
+**Formule par capitale :** `Bonus = 100 - (distance x 10)` (minimum 0%)
+
+| Distance (cases) | Bonus |
+|-------------------|-------|
+| 1 | +90% |
+| 4 | +60% |
+| 6 | +40% |
+| 10+ | +0% |
+
+- **Cumulatif :** les bonus de toutes les capitales proches sont additionnes. Exemple : une capitale a 4 cases (+60%) et une autre a 6 cases (+40%) = +100% de bonus de production total.
+- **Conditions pour qu'une capitale compte :** la capitale doit toujours appartenir a sa civilisation fondatrice. Si la capitale est capturee par une autre civilisation ou convertie en cite-etat, le bonus disparait.
+- S'applique uniquement aux **civilisations majeures** (pas aux cites-etats).
+- Represente les benefices economiques du commerce, des echanges culturels et de la competition entre empires voisins.
+
+### 4.6 — Bonus progressif de l'Age d'Or
 
 L'Age d'Or (ISI 80+) accorde un **bonus progressif de production et d'or** qui monte, stagne, puis decroit :
 

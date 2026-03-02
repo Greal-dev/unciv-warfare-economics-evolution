@@ -267,6 +267,39 @@ class CityStats(val city: City) {
         return if (productionMalus == 0f) null else Stats(production = productionMalus)
     }
 
+    /** Territorial Warfare: production bonus based on distance between capitals.
+     *  Bonus per other major civ capital = 100 - distance*10 (min 0, cumulative).
+     *  Only active from Medieval era onwards. Disappears if the other capital is captured or converted. */
+    @Readonly
+    private fun getStatPercentBonusesFromCapitalProximity(): Stats? {
+        val civ = city.civ
+        if (!civ.isMajorCiv()) return null
+
+        // Only from Medieval era onwards
+        val medievalEra = civ.gameInfo.ruleset.eras.values.firstOrNull { it.name == "Medieval era" }
+            ?: return null
+        if (civ.getEraNumber() < medievalEra.eraNumber) return null
+
+        val myCapital = civ.getCapital() ?: return null
+
+        var totalBonus = 0f
+        for (otherCiv in civ.gameInfo.civilizations) {
+            if (otherCiv == civ) continue
+            if (!otherCiv.isMajorCiv()) continue
+            if (otherCiv.isDefeated()) continue
+
+            val otherCapital = otherCiv.getCapital() ?: continue
+            // Skip if the capital was captured (founder != current owner)
+            if (otherCapital.foundingCivObject != null && otherCapital.foundingCivObject != otherCiv) continue
+
+            val distance = myCapital.getCenterTile().aerialDistanceTo(otherCapital.getCenterTile())
+            val bonus = (100f - distance * 10f).coerceAtLeast(0f)
+            totalBonus += bonus
+        }
+
+        return if (totalBonus == 0f) null else Stats(production = totalBonus)
+    }
+
     /** Territorial Warfare: production/culture modifiers based on Imperial Stability Index */
     @Readonly
     private fun getStatPercentBonusesFromImperialStability(): Stats? {
@@ -561,6 +594,7 @@ class CityStats(val city: City) {
         newStatsBonusTree.addStats(getStatPercentBonusesFromPuppetCity(), "Puppet City")
         newStatsBonusTree.addStats(getStatPercentBonusesFromUnitSupply(), "Unit Supply")
         newStatsBonusTree.addStats(getStatPercentBonusesFromConquestAndExpansion(), "Conquest & Expansion")
+        newStatsBonusTree.addStats(getStatPercentBonusesFromCapitalProximity(), "Capital Proximity")
         newStatsBonusTree.addStats(getStatPercentBonusesFromImperialStability(), "Imperial Stability")
         newStatsBonusTree.add(getStatsPercentBonusesFromUniquesBySource(currentConstruction))
         
