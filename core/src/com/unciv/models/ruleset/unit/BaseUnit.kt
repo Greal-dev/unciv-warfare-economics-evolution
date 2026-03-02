@@ -361,6 +361,16 @@ class BaseUnit : RulesetObject(), INonPerpetualConstruction {
         if (boughtWith != null && !civInfo.gameInfo.gameParameters.godMode && !unit.hasUnique(UniqueType.CanMoveImmediatelyOnceBought))
             unit.currentMovement = 0f
 
+        // TW: Military units, workers, and settlers cost 1 population to produce
+        if (boughtWith == null) { // only when produced, not purchased
+            val city = cityConstructions.city
+            val isWorker = hasUnique(UniqueType.BuildImprovements) || hasUnique(UniqueType.CanBuildImprovementsOnTiles)
+            val isSettler = hasUnique(UniqueType.FoundCity)
+            if ((isMilitary || isWorker || isSettler) && city.population.population > 1) {
+                city.population.addPopulation(-1)
+            }
+        }
+
         addConstructionBonuses(unit, cityConstructions)
 
         return unit
