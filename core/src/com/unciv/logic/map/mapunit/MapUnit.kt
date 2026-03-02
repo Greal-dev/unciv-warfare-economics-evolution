@@ -995,10 +995,11 @@ class MapUnit : IsPartOfGameInfoSerialization {
                     if (nearestCity != null) {
                         nearestCity.expansion.takeOwnership(tile)
                         if (!tile.isWater) takeDamage(10)
-                        // Auto-pillage improvement and heal 50 HP
+                        // Auto-pillage improvement: heal 50 HP + gain 50 gold
                         if (tile.improvement != null && !tile.improvementIsPillaged) {
                             tile.setPillaged()
                             healBy(50)
+                            civ.addGold(50)
                         }
                     }
                 }
