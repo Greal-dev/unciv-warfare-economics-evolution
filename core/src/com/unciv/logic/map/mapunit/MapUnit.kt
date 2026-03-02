@@ -975,15 +975,25 @@ class MapUnit : IsPartOfGameInfoSerialization {
                     hasClaimedNeutralTileThisTurn = true
                 }
             } else if (tileOwner != null && civ.isAtWarWith(tileOwner)) {
-                // Capture enemy tile - costs 10 HP
-                val nearestCity = civ.cities.minByOrNull { it.getCenterTile().aerialDistanceTo(tile) }
-                if (nearestCity != null) {
-                    nearestCity.expansion.takeOwnership(tile)
-                    takeDamage(10)
-                    // Auto-pillage improvement and heal 50 HP
-                    if (tile.improvement != null && !tile.improvementIsPillaged) {
-                        tile.setPillaged()
-                        healBy(50)
+                // On land: capture enemy tile - costs 10 HP
+                // On water: only capture exploited tiles >3 tiles from any enemy city (naval raiders)
+                val canCapture = if (tile.isWater) {
+                    tile.improvement != null && !tile.improvementIsPillaged
+                        && (tileOwner.cities.none {
+                            it.getCenterTile().aerialDistanceTo(tile) <= 3
+                        })
+                } else true
+
+                if (canCapture) {
+                    val nearestCity = civ.cities.minByOrNull { it.getCenterTile().aerialDistanceTo(tile) }
+                    if (nearestCity != null) {
+                        nearestCity.expansion.takeOwnership(tile)
+                        if (!tile.isWater) takeDamage(10)
+                        // Auto-pillage improvement and heal 50 HP
+                        if (tile.improvement != null && !tile.improvementIsPillaged) {
+                            tile.setPillaged()
+                            healBy(50)
+                        }
                     }
                 }
             }

@@ -546,8 +546,11 @@ class WorkerAutomation(
      *  @return Whether any progress was made (improved a tile or at least moved towards an opportunity)
      */
     fun automateWorkBoats(unit: MapUnit): Boolean {
-        val closestReachableResource = unit.civ.cities.asSequence()
-            .flatMap { city -> city.getTiles() }
+        // Territorial Warfare: search owned tiles AND unowned water tiles with resources
+        val ownedTiles = unit.civ.cities.asSequence().flatMap { city -> city.getTiles() }
+        val unownedWaterTiles = unit.civ.gameInfo.tileMap.values.asSequence()
+            .filter { it.isWater && it.getOwner() == null && it.resource != null }
+        val closestReachableResource = (ownedTiles + unownedWaterTiles)
             .filter {
                 hasWorkableSeaResource(it, unit.civ)
                     && (unit.currentTile == it || unit.movement.canMoveTo(it))

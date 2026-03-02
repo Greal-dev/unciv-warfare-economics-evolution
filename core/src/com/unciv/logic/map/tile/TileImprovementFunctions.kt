@@ -203,6 +203,17 @@ class TileImprovementFunctions(val tile: Tile) {
         if (civToActivateBroaderEffects != null && improvementObject != null)
             triggerImprovementUniques(improvementObject, civToActivateBroaderEffects, unit)
 
+        // Territorial Warfare: auto-claim unowned water tiles when an improvement is built outside borders
+        if (civToActivateBroaderEffects != null && tile.getOwner() == null && tile.isWater
+            && improvementName != null && improvementObject != null) {
+            val nearestCity = civToActivateBroaderEffects.cities.minByOrNull {
+                it.getCenterTile().aerialDistanceTo(tile)
+            }
+            if (nearestCity != null) {
+                nearestCity.expansion.takeOwnership(tile)
+            }
+        }
+
         val city = tile.owningCity
         if (civToActivateBroaderEffects != null && city != null) {
             city.cityStats.update()
