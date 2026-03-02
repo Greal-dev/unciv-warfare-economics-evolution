@@ -142,7 +142,8 @@ class CityFounderTest {
 
         // then
         assertFalse(city.workedTiles.contains(city.getCenterTile().position)) // no pop required
-        assertEquals(2.0f, city.cityStats.statsFromTiles.production)
+        // TW: tile production now goes to tileProductionBonus (% bonus), not statsFromTiles
+        assertEquals(2.0f, city.cityStats.tileProductionBonus)
     }
 
     @Test

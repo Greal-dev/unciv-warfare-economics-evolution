@@ -62,7 +62,8 @@ class GlobalUniquesTests {
 
         city.cityConstructions.addBuilding(building)
         city.cityStats.update()
-        Assert.assertTrue(city.cityStats.finalStatList["Buildings"]!!.equals(Stats(production=1f)))
+        // TW: city center on desert = 1 prod → +1% tile productivity bonus → 1 × 1.01
+        Assert.assertEquals(1f, city.cityStats.finalStatList["Buildings"]!!.production, 0.1f)
     }
 
     @Test
@@ -494,7 +495,8 @@ class GlobalUniquesTests {
         city.cityConstructions.addBuilding(building)
         city.cityConstructions.addToQueue(buildingToConstruct.name)
         city.cityStats.update()
-        Assert.assertTrue(city.cityStats.statPercentBonusTree.totalStats.production == 300f)
+        // TW: +1 from city center tile productivity (1 shield = +1%)
+        Assert.assertTrue(city.cityStats.statPercentBonusTree.totalStats.production == 301f)
     }
 
     @Test
@@ -508,7 +510,8 @@ class GlobalUniquesTests {
         city.cityConstructions.addBuilding(building)
         city.cityConstructions.addToQueue(unitToConstruct.name)
         city.cityStats.update()
-        Assert.assertTrue(city.cityStats.statPercentBonusTree.totalStats.production == 300f)
+        // TW: +1 from city center tile productivity (1 shield = +1%)
+        Assert.assertTrue(city.cityStats.statPercentBonusTree.totalStats.production == 301f)
     }
 
     @Test
@@ -522,11 +525,13 @@ class GlobalUniquesTests {
         city.cityConstructions.addBuilding(building)
         city.cityConstructions.addToQueue(buildingToConstruct.name)
         city.cityStats.update()
-        Assert.assertTrue(city.cityStats.statPercentBonusTree.totalStats.production == 0f)
+        // TW: +1 from city center tile productivity (1 shield = +1%)
+        Assert.assertTrue(city.cityStats.statPercentBonusTree.totalStats.production == 1f)
 
         buildingToConstruct.isWonder = true
         city.cityStats.update()
-        Assert.assertTrue(city.cityStats.statPercentBonusTree.totalStats.production == 300f)
+        // TW: +1 from city center tile productivity (1 shield = +1%)
+        Assert.assertTrue(city.cityStats.statPercentBonusTree.totalStats.production == 301f)
     }
 
     @Test
@@ -540,12 +545,13 @@ class GlobalUniquesTests {
         val buildingToConstruct = game.createBuilding()
         city2.cityConstructions.addToQueue(buildingToConstruct.name)
         city2.cityStats.update()
-        // Territorial Warfare: -5% expansion malus per city beyond first (2 cities = -5%)
-        Assert.assertTrue(city2.cityStats.statPercentBonusTree.totalStats.production == -5f)
+        // TW: -5% expansion malus + 1% tile productivity from city center = -4%
+        Assert.assertTrue(city2.cityStats.statPercentBonusTree.totalStats.production == -4f)
 
         city.cityConstructions.addBuilding(buildingToConstruct)
         city2.cityStats.update()
-        Assert.assertTrue(city2.cityStats.statPercentBonusTree.totalStats.production == 295f)
+        // TW: 300% building bonus - 5% expansion malus + 1% tile productivity = 296%
+        Assert.assertTrue(city2.cityStats.statPercentBonusTree.totalStats.production == 296f)
     }
 
     //endregion

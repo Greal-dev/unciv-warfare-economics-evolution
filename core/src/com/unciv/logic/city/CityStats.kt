@@ -93,6 +93,9 @@ class CityStats(val city: City) {
 
     var statsFromTiles = Stats()
 
+    /** TW: tile shields accumulated as % production bonus (1 shield = +1%) */
+    var tileProductionBonus = 0f
+
     var currentCityStats: Stats = Stats()  // This is so we won't have to calculate this multiple times - takes a lot of time, especially on phones
 
     //endregion
@@ -461,6 +464,7 @@ class CityStats(val city: City) {
 
     fun updateTileStats(localUniqueCache: LocalUniqueCache = LocalUniqueCache()) {
         val stats = Stats()
+        var totalTileProduction = 0f  // TW: accumulate tile shields for % bonus
         val workedTiles = city.tilesInRange.asSequence()
             .filter {
                 city.location.toHexCoord() == it.position
@@ -477,6 +481,9 @@ class CityStats(val city: City) {
                 continue
             }
             val tileStats = tile.stats.getTileStats(city, city.civ, localUniqueCache)
+            // TW: Tile production becomes % bonus, not base stat
+            totalTileProduction += tileStats.production
+            tileStats.production = 0f
             // Territorial Warfare: for worked tiles, only add non-food stats
             val nonFoodStats = tileStats.clone().apply { food = 0f }
             stats.add(nonFoodStats)
@@ -495,6 +502,7 @@ class CityStats(val city: City) {
         }
         stats.food += totalTerritoryFood * foodEfficiency
 
+        tileProductionBonus = totalTileProduction  // TW: store for % bonus
         statsFromTiles = stats
     }
 
@@ -568,9 +576,10 @@ class CityStats(val city: City) {
         // We don't edit the existing baseStatList directly, in order to avoid concurrency exceptions
         val newBaseStatList = StatMap()
 
+        // TW: All population contributes 1 production each (not just free pop)
         newBaseStatTree.addStats(Stats(
             science = city.population.population.toFloat(),
-            production = city.population.getFreePopulation().toFloat()
+            production = city.population.population.toFloat()
         ), "Population")
         newBaseStatList["Tile yields"] = statsFromTiles
         newBaseStatList["Specialists"] =
@@ -603,6 +612,11 @@ class CityStats(val city: City) {
             newStatsBonusTree.addStats(building.getStatPercentageBonuses(city, localUniqueCache),
                 "Buildings", building.name)
 
+
+        // TW: Tile shields as % production bonus (1 shield = +1%)
+        if (tileProductionBonus > 0f) {
+            newStatsBonusTree.addStats(Stats(production = tileProductionBonus), "Tile productivity")
+        }
 
         if (DebugUtils.SUPERCHARGED) {
             val stats = Stats()

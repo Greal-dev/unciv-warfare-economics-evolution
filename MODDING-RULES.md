@@ -242,6 +242,31 @@ Fishing Boats can be built **outside your borders** on unowned water tiles with 
 
 ## 4. Economics & Production
 
+### 4.0 — Population-Based Production Model
+
+Production is calculated from **population**, not tile shields:
+
+**Formula:**
+```
+Base Production = Population × 1 + Building Production + Specialist Production
+Tile Bonus = Sum of worked tile shields → converted to % bonus (1 shield = +1%)
+Final Production = Base Production × (1 + Tile Bonus% + other bonuses%)
+```
+
+| Source | Contribution |
+|--------|-------------|
+| **Population** | 1 production per citizen (ALL citizens, not just unassigned) |
+| **Buildings** | Direct production (additive to base) |
+| **Specialists** | Direct production (additive to base) |
+| **Tile shields** | % bonus only (1 hammer = +1% production) |
+
+**Example:** City pop 10, buildings +3, 12 tile shields:
+- Base = 10 + 3 = 13 production
+- Tile bonus = +12%
+- Final (before other bonuses) = 13 × 1.12 = **14.6**
+
+Tiles still provide gold, culture, science, and faith as direct yields — only production changes.
+
 ### 4.1 — Trade Route Gold
 
 Connected cities generate **×3 trade route gold** compared to vanilla.
@@ -606,6 +631,31 @@ Les bateaux de peche peuvent etre construits **hors de vos frontieres** sur des 
 ---
 
 ## 4. Economie et Production
+
+### 4.0 — Modele de production base sur la population
+
+La production est calculee a partir de la **population**, pas des boucliers de tuiles :
+
+**Formule :**
+```
+Production de base = Population x 1 + Production des batiments + Production des specialistes
+Bonus tuiles = Somme des boucliers des tuiles travaillees → converti en bonus % (1 bouclier = +1%)
+Production finale = Production de base x (1 + Bonus tuiles% + autres bonus%)
+```
+
+| Source | Contribution |
+|--------|-------------|
+| **Population** | 1 production par citoyen (TOUS les citoyens, pas seulement les non-assignes) |
+| **Batiments** | Production directe (additif a la base) |
+| **Specialistes** | Production directe (additif a la base) |
+| **Boucliers de tuiles** | Bonus % uniquement (1 marteau = +1% de production) |
+
+**Exemple :** Ville pop 10, batiments +3, 12 boucliers de tuiles :
+- Base = 10 + 3 = 13 production
+- Bonus tuiles = +12%
+- Final (avant autres bonus) = 13 x 1.12 = **14.6**
+
+Les tuiles continuent d'apporter or, culture, science et foi normalement — seule la production change.
 
 ### 4.1 — Or des routes commerciales
 
