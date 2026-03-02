@@ -85,7 +85,9 @@ object MovementCost {
         if (areConnectedByRiver) return 100f  // Rivers take the entire turn to cross
 
         // Cities reduce terrain cost to 1
+        // TW: Ocean tiles cost only 0.1 movement points
         val terrainCost = if (to.isCityCenter()) 1f
+            else if (to.baseTerrain == Constants.ocean) 0.1f
             else to.lastTerrain.movementCost.toFloat()
 
         if (unit.cache.noTerrainMovementUniques)
