@@ -82,9 +82,8 @@ class UnitPromotions : IsPartOfGameInfoSerialization {
 
     @Readonly
     fun canBePromoted(): Boolean {
-        if (XP < xpForNextPromotion()) return false
-        if (getAvailablePromotions().none()) return false
-        return true
+        // Territorial Warfare: promotions disabled, replaced by kill bonus system
+        return false
     }
 
     fun addPromotion(promotionName: String, isFree: Boolean = false) {

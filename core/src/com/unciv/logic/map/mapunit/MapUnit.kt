@@ -122,6 +122,9 @@ class MapUnit : IsPartOfGameInfoSerialization {
     /** Territorial Warfare mod: tracks whether this unit already claimed a neutral tile this turn */
     var hasClaimedNeutralTileThisTurn = false
 
+    /** Territorial Warfare: combat bonus from kills. +5% per kill, decays -1% per turn */
+    var killBonus = 0f
+
     //endregion
     //region Transient fields
 
@@ -243,6 +246,7 @@ class MapUnit : IsPartOfGameInfoSerialization {
         toReturn.statusMap = newStatusMap
         toReturn.mostRecentMoveType = mostRecentMoveType
         toReturn.attacksSinceTurnStart = ArrayList(attacksSinceTurnStart)
+        toReturn.killBonus = killBonus
         return toReturn
     }
 

@@ -67,6 +67,11 @@ object BattleDamage {
             val warXpBonus = civInfo.warExperienceBonus
             if (warXpBonus > 0) modifiers["War experience"] = warXpBonus
 
+            // Territorial Warfare: kill bonus (+5% per kill, decays -1%/turn)
+            if (combatant.unit.killBonus > 0f) {
+                modifiers["Kill experience"] = combatant.unit.killBonus.toInt()
+            }
+
             // Territorial Warfare: ISI combat malus for distant units in crisis
             if (civInfo.imperialStability < 40) {
                 val capital = civInfo.getCapital()

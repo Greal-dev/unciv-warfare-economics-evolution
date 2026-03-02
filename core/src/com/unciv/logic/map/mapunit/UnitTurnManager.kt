@@ -176,6 +176,11 @@ class UnitTurnManager(val unit: MapUnit) {
         unit.due = true
         unit.hasClaimedNeutralTileThisTurn = false
 
+        // Territorial Warfare: kill bonus decays -1% per turn
+        if (unit.killBonus > 0f) {
+            unit.killBonus = (unit.killBonus - 1f).coerceAtLeast(0f)
+        }
+
         for (unique in unit.getTriggeredUniques(UniqueType.TriggerUponTurnStart))
             UniqueTriggerActivation.triggerUnique(unique, unit)
 

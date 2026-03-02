@@ -205,6 +205,39 @@ Worker units (units with "Build Improvements") cost **×4 production** to build.
 
 All tile improvements take **×2 longer** to build or repair.
 
+### 3.8 — Kill Bonus (Replaces Promotions)
+
+The vanilla promotion system is **disabled**. Units can no longer be promoted through XP. Instead, units gain combat power through kills:
+
+| Event | Effect |
+|-------|--------|
+| **Kill a military unit** | +5% combat strength (cumulative) |
+| **Each turn** | -1% decay (minimum 0%) |
+
+- Displayed as "Kill experience" in the combat breakdown
+- Stacks indefinitely (a unit with 10 kills has +50% before decay)
+- Persists across turns and is saved with the unit
+- Decay applies at the start of each turn
+
+This rewards aggressive, veteran units while preventing permanent snowballing.
+
+### 3.9 — Fishing Boats & Maritime Territory
+
+Fishing Boats can be built **outside your borders** on unowned water tiles with resources:
+
+| Action | Effect |
+|-------|--------|
+| **Build on unowned water** | Tile is automatically claimed by your nearest city |
+| **Naval capture** | Military ships can capture enemy water tiles with improvements that are **>3 tiles from any enemy city** (at war) |
+| **Embarked restriction** | Embarked land units **cannot** capture maritime territory |
+
+### 3.10 — War & Peace Timers
+
+| Timer | Duration |
+|-------|----------|
+| **Minimum war duration** | 5 turns (cannot make peace before) |
+| **Peace treaty duration** | 7 turns (cannot declare war again before) |
+
 ---
 
 ## 4. Economics & Production
@@ -324,7 +357,7 @@ When a major civ's ISI drops below 40, it loses **5 influence per turn** with ev
 | State | Military Techs | Civilian Techs |
 |-------|----------------|----------------|
 | At war | **÷2 cost** | **×2 cost** |
-| At peace | Normal | Normal |
+| At peace | **×2 cost** | Normal |
 
 ---
 
@@ -537,6 +570,39 @@ Les travailleurs (unites "Ameliorer les tuiles") coutent **x4 en production** a 
 
 Toutes les ameliorations de tuiles prennent **x2 plus de temps** a construire ou reparer.
 
+### 3.8 — Bonus de mise a mort (Remplace les promotions)
+
+Le systeme de promotions vanilla est **desactive**. Les unites ne peuvent plus etre promues par l'XP. A la place, les unites gagnent en puissance de combat par les eliminations :
+
+| Evenement | Effet |
+|-----------|-------|
+| **Eliminer une unite militaire** | +5% de force de combat (cumulatif) |
+| **Chaque tour** | -1% de decroissance (minimum 0%) |
+
+- Affiche comme "Kill experience" dans le detail du combat
+- Se cumule indefiniment (une unite avec 10 eliminations a +50% avant decroissance)
+- Persiste entre les tours et est sauvegarde avec l'unite
+- La decroissance s'applique au debut de chaque tour
+
+Cela recompense les unites veteranes agressives tout en empechant l'effet boule de neige permanent.
+
+### 3.9 — Bateaux de peche et territoire maritime
+
+Les bateaux de peche peuvent etre construits **hors de vos frontieres** sur des tuiles maritimes sans proprietaire avec des ressources :
+
+| Action | Effet |
+|--------|-------|
+| **Construire sur eau sans proprietaire** | La tuile est automatiquement revendiquee par votre ville la plus proche |
+| **Capture navale** | Les navires militaires peuvent capturer les tuiles maritimes ennemies avec ameliorations a **>3 cases de toute ville ennemie** (en guerre) |
+| **Restriction embarque** | Les unites terrestres embarquees **ne peuvent pas** capturer de territoire maritime |
+
+### 3.10 — Durees de guerre et de paix
+
+| Minuterie | Duree |
+|-----------|-------|
+| **Duree minimale de guerre** | 5 tours (impossible de faire la paix avant) |
+| **Duree du traite de paix** | 7 tours (impossible de redeclarer la guerre avant) |
+
 ---
 
 ## 4. Economie et Production
@@ -656,7 +722,7 @@ Quand l'ISI d'une civilisation majeure tombe sous 40, elle perd **5 influence pa
 | Etat | Technologies militaires | Technologies civiles |
 |------|-------------------------|----------------------|
 | En guerre | **Cout /2** | **Cout x2** |
-| En paix | Normal | Normal |
+| En paix | **Cout x2** | Normal |
 
 ---
 
@@ -803,4 +869,4 @@ The most impactful additions would be **R1 (Cultural Assimilation)**, **R3 (War 
 
 ---
 
-*611 tests passing. 14 files modified. 35+ interlocking game mechanics.*
+*611 tests passing. 20+ files modified. 40+ interlocking game mechanics.*

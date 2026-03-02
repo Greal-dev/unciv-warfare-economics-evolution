@@ -280,6 +280,11 @@ object Battle {
 
 
     private fun triggerVictoryUniques(ourUnit: MapUnitCombatant, enemy: MapUnitCombatant, attackedTile: Tile) {
+        // Territorial Warfare: +5% kill bonus per enemy defeated
+        if (!enemy.unit.isCivilian()) {
+            ourUnit.unit.killBonus += 5f
+        }
+
         val gameContext = GameContext(civInfo = ourUnit.getCivInfo(),
             ourCombatant = ourUnit, theirCombatant = enemy, tile = attackedTile)
         for (unique in ourUnit.unit.getTriggeredUniques(UniqueType.TriggerUponDefeatingUnit, gameContext)
