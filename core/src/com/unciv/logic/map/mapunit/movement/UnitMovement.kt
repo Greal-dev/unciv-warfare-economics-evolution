@@ -540,6 +540,7 @@ class UnitMovement(val unit: MapUnit) {
                 unit.useMovementPoints(passingMovementSpent)
                 unit.removeFromTile()
                 unit.putInTile(tile) // Required for ruins,
+                unit.moveThroughTile(tile) // Territorial Warfare: claim territory as unit moves
 
                 if (escortUnit != null) {
                     escortUnit.movement.moveToTile(tile)
