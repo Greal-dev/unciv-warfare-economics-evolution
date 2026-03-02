@@ -25,7 +25,7 @@ class Speed : RulesetObject() {
     var improvementBuildLengthModifier: Float = modifier
     var goldenAgeLengthModifier: Float = modifier
     var religiousPressureAdjacentCity: Int = 6
-    var peaceDealDuration: Int = 10
+    var peaceDealDuration: Int = 7
     var dealDuration: Int = 30
     var startYear: Float = -4000f
     var turns: ArrayList<HashMap<String, Float>> = ArrayList()

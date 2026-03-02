@@ -106,7 +106,7 @@ class ModConstants {
     var minimumCityLocationTileValue = 53f
 
     // Civilization
-    var minimumWarDuration = 10
+    var minimumWarDuration = 5
     var baseTurnsUntilRevolt = 4
     var cityStateElectionTurns = 15
 
