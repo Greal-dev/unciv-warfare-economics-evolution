@@ -94,8 +94,14 @@ class UncivStage(viewport: Viewport) : Stage(viewport, getBatch()) {
     override fun touchDragged(screenX: Int, screenY: Int, pointer: Int) =
             { super.touchDragged(screenX, screenY, pointer) }.wrapCrashHandling()() ?: true
 
-    override fun touchUp(screenX: Int, screenY: Int, pointer: Int, button: Int) =
-            { super.touchUp(screenX, screenY, pointer, button) }.wrapCrashHandling()() ?: true
+    override fun touchUp(screenX: Int, screenY: Int, pointer: Int, button: Int): Boolean {
+        // TW: Catch NPE from LibGDX ActorGestureListener when actor is removed during gesture
+        return try {
+            super.touchUp(screenX, screenY, pointer, button)
+        } catch (e: NullPointerException) {
+            true // swallow — actor was removed mid-gesture, harmless
+        }
+    }
 
     override fun mouseMoved(screenX: Int, screenY: Int) =
             { super.mouseMoved(screenX, screenY) }.wrapCrashHandling()() ?: true

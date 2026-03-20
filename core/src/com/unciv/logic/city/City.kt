@@ -81,6 +81,10 @@ class City : IsPartOfGameInfoSerialization, INamed {
      *  -1 = uninitialized (will be set to computed production on first update). */
     var smoothedProduction: Float = -1f
 
+    /** TW: Turns where puppet city's local culture >= 2x owner's national culture.
+     *  At 10+ turns in Modern era+, the city declares independence. */
+    var puppetIndependenceTurns: Int = 0
+
     var population = CityPopulationManager()
     var cityConstructions = CityConstructions()
     var expansion = CityExpansionManager()

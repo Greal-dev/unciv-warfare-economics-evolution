@@ -102,14 +102,38 @@ object TileCultureLogic {
     private fun isCulturalBarrier(tile: Tile): Boolean =
         tile.baseTerrain == Constants.mountain || tile.baseTerrain == Constants.coast
 
+    /** TW: Check if a city is a conquered enemy capital (behaves culturally like a puppet). */
+    @Readonly
+    private fun isConqueredCapital(city: com.unciv.logic.city.City): Boolean =
+        city.isOriginalCapital && city.foundingCivObject != null && city.foundingCivObject != city.civ
+
     /** TW: Get the culture name a city projects.
-     *  Connected to capital via road/port → civilization name (national culture).
-     *  Not connected → city's own name (local culture).
-     *  Capital itself always projects civ culture. */
+     *  Own capital → civ culture.
+     *  Conquered enemy capital (even annexed) → founding civ's culture (like puppet).
+     *  Puppet (even if connected) → local culture (puppet identity persists).
+     *  Connected to capital → civ culture.
+     *  Not connected → local culture. */
     @Readonly
     fun getCultureName(city: com.unciv.logic.city.City): String {
-        if (city.isCapital() || city.isConnectedToCapital()) return city.civ.civName
+        if (city.isCapital() && !isConqueredCapital(city)) return city.civ.civName
+        if (isConqueredCapital(city)) return city.foundingCivObject!!.civName  // projects original civ culture
+        if (city.isPuppet) return city.name  // puppets project local culture
+        if (city.isConnectedToCapital()) return city.civ.civName
         return city.name
+    }
+
+    /** TW: Get the culture split for a city — how much goes to local vs national.
+     *  Conquered enemy capital: 70% founding civ culture, 30% current owner.
+     *  Puppet cities (even connected): 70% local, 30% national.
+     *  Normal connected cities: 0% local, 100% national.
+     *  Unconnected cities: 100% local, 0% national. */
+    @Readonly
+    fun getCultureSplit(city: com.unciv.logic.city.City): Pair<Float, Float> {
+        if (city.isCapital() && !isConqueredCapital(city)) return Pair(0f, 1f)
+        if (isConqueredCapital(city)) return Pair(0.70f, 0.30f)  // conquered capital: 70% original civ, 30% owner
+        if (city.isPuppet) return Pair(0.70f, 0.30f)
+        if (city.isConnectedToCapital()) return Pair(0f, 1f)
+        return Pair(1f, 0f)
     }
 
     /** TW: Get the total "friendly" culture share on a tile for a civilization.
@@ -169,9 +193,28 @@ object TileCultureLogic {
         // Optimization: run BFS only every 5 turns, multiply pressure by 5
         if (gameInfo.turns % 5 == 0) processDecolonization(civ, 5f)
 
-        // TW: For connected cities, gradually convert local city culture → national culture
+        // TW: For connected non-puppet cities, gradually convert local culture → national culture
         // 5% of local culture converts to national each turn
-        for (city in civ.cities) {
+        // Puppet cities do NOT convert — they retain their local identity
+        for (city in civ.cities.toList()) {
+            if (city.isPuppet) {
+                // Puppet independence check (Modern era+, era 5+)
+                if (civ.getEraNumber() >= 5) {
+                    val cityTile = city.getCenterTile()
+                    val localShare = cityTile.cultureMap[city.name] ?: 0f
+                    val nationalShare = cityTile.cultureMap[civName] ?: 0f
+                    if (localShare >= nationalShare * 2f && localShare > 0.1f) {
+                        city.puppetIndependenceTurns++
+                        if (city.puppetIndependenceTurns >= 10) {
+                            // Declare independence!
+                            declarePuppetIndependence(city, civ)
+                        }
+                    } else {
+                        city.puppetIndependenceTurns = 0
+                    }
+                }
+                continue  // skip local→national conversion for puppets
+            }
             if (city.isCapital() || city.isConnectedToCapital()) {
                 val cityName = city.name
                 for (pos in city.tiles) {
@@ -292,10 +335,16 @@ object TileCultureLogic {
         // Collect all cultural influences as deltas
         val influences = HashMap<String, Float>()
 
-        // 1. Base natural growth — uses the culture name of the owning city (local or national)
+        // 1. Base natural growth — split local/national for puppet cities
         val owningCity = tile.getCity()
-        val tileCultureName = if (owningCity != null) getCultureName(owningCity) else ownerName
-        addInfluence(influences, tileCultureName, BASE_GROWTH)
+        if (owningCity != null) {
+            val (localRatio, nationalRatio) = getCultureSplit(owningCity)
+            val localCultureName = getCultureName(owningCity)
+            if (localRatio > 0f) addInfluence(influences, localCultureName, BASE_GROWTH * localRatio)
+            if (nationalRatio > 0f) addInfluence(influences, ownerName, BASE_GROWTH * nationalRatio)
+        } else {
+            addInfluence(influences, ownerName, BASE_GROWTH)
+        }
 
         // 2. City center influence: 25% owner + 75% city center's cultural composition
         var hasNearbyCity = false
@@ -567,16 +616,20 @@ object TileCultureLogic {
     /** Add city influence using 25% owner + 75% city center composition split. */
     private fun addCityInfluence(influences: HashMap<String, Float>, cityTile: Tile, rate: Float) {
         val city = cityTile.getCity() ?: return
-        val cultureName = getCultureName(city)
-        // 25% goes directly to the city's culture identity (civ or local)
-        addInfluence(influences, cultureName, rate * CITY_OWNER_PROJECTION)
+        val (localRatio, nationalRatio) = getCultureSplit(city)
+        val localName = getCultureName(city)  // city name, or founding civ name for conquered capitals
+        val nationalName = city.civ.civName
+        // 25% goes directly to the city's culture identity (split local/national)
+        if (localRatio > 0f) addInfluence(influences, localName, rate * CITY_OWNER_PROJECTION * localRatio)
+        if (nationalRatio > 0f) addInfluence(influences, nationalName, rate * CITY_OWNER_PROJECTION * nationalRatio)
         // 75% goes proportional to the city center tile's cultural composition
         if (cityTile.cultureMap.isNotEmpty()) {
             for ((civName, share) in cityTile.cultureMap) {
                 addInfluence(influences, civName, rate * CITY_COMPOSITION_PROJECTION * share)
             }
         } else {
-            addInfluence(influences, cultureName, rate * CITY_COMPOSITION_PROJECTION)
+            if (localRatio > 0f) addInfluence(influences, localName, rate * CITY_COMPOSITION_PROJECTION * localRatio)
+            if (nationalRatio > 0f) addInfluence(influences, nationalName, rate * CITY_COMPOSITION_PROJECTION * nationalRatio)
         }
     }
 
@@ -937,6 +990,44 @@ object TileCultureLogic {
 
     /** Attrition damage amount for garrison on rebelling tile. */
     fun getRebellionAttritionDamage(): Int = GARRISON_ATTRITION
+
+    /** TW: Puppet city declares independence after 10 turns of cultural dominance in Modern era+.
+     *  If founding civ is alive → return to founding civ. Otherwise → become city-state. */
+    private fun declarePuppetIndependence(city: com.unciv.logic.city.City, currentOwner: Civilization) {
+        val tile = city.getCenterTile()
+        val cityName = city.name
+        val foundingCiv = city.foundingCivObject
+
+        // Try to return to founding civ
+        if (foundingCiv != null && foundingCiv != currentOwner && foundingCiv.isAlive() && !foundingCiv.isBarbarian) {
+            currentOwner.addNotification(
+                "[$cityName] has declared independence and returned to [${foundingCiv.civName}]!",
+                tile.position,
+                NotificationCategory.War,
+                NotificationIcon.Death
+            )
+            foundingCiv.addNotification(
+                "[$cityName] has declared independence and rejoined our civilization!",
+                tile.position,
+                NotificationCategory.General,
+                NotificationIcon.Culture
+            )
+            city.moveToCiv(foundingCiv)
+            city.isPuppet = false
+            city.puppetIndependenceTurns = 0
+            tile.rebellionTurns = 0
+            return
+        }
+
+        // Founding civ dead or same as owner → become city-state
+        currentOwner.addNotification(
+            "[$cityName] has declared independence and become a city-state!",
+            tile.position,
+            NotificationCategory.War,
+            NotificationIcon.Death
+        )
+        convertCityToCityState(city, tile, currentOwner)
+    }
 
     /** Barbarian decay on a city: convert it into an independent city-state.
      *  75% of barbarian culture on the city center and tiles within 2 range transfers to the new city-state. */
