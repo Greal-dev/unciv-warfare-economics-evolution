@@ -85,6 +85,9 @@ class CityConstructions : IsPartOfGameInfoSerialization {
     var constructionQueue = ArrayList<String>(queueMaxSize)
     var productionOverflow = 0
 
+    /** TW: Name of the last completed construction (for specialization bonus) */
+    var lastCompletedConstruction: String = ""
+
     /** Maps cities by id to a set of the buildings they received (by nation equivalent name)
      *  Source: [UniqueType.GainFreeBuildings]
      */
@@ -572,6 +575,9 @@ class CityConstructions : IsPartOfGameInfoSerialization {
             inProgressConstructions.remove(construction.name)
         if (construction.name == currentConstructionName())
             removeCurrentConstruction()
+
+        // TW: Track last completed construction for specialization bonus
+        lastCompletedConstruction = construction.name
 
         validateConstructionQueue() // if we've built e.g. the Great Lighthouse, then Lighthouse is no longer relevant in the queue
 

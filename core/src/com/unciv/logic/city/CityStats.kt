@@ -247,6 +247,16 @@ class CityStats(val city: City) {
         return Stats(production = bonus, gold = bonus)
     }
 
+    /** TW: Happiness = direct % bonus on science, production and gold.
+     *  1 happiness = +1%. Malus capped at -15%. No cap on bonus. */
+    @Readonly
+    private fun getStatPercentBonusesFromHappiness(): Stats? {
+        val happiness = city.civ.getHappiness()
+        val bonus = happiness.toFloat().coerceAtLeast(-15f) // malus capped at -15%
+        if (bonus == 0f) return null
+        return Stats(science = bonus, production = bonus, gold = bonus)
+    }
+
     /** Territorial Warfare: -30% production per conquered city (recovers 0.5%/turn) + -5% global per city owned */
     @Readonly
     private fun getStatPercentBonusesFromConquestAndExpansion(): Stats? {
@@ -375,14 +385,9 @@ class CityStats(val city: City) {
                 addUniqueStats(unique, Stat.Production, unique.params[0].toFloat())
         }
 
-        // Territorial Warfare: military unit production ×2 in war, /2 in peace
+        // TW: Military unit war/peace cost modifier moved to BaseUnitCost.getProductionCost()
+        // (÷2 cost in war, ×2 cost in peace — affects unit cost, not city production)
         if (currentConstruction is BaseUnit && currentConstruction.isMilitary) {
-            val warPeaceModifier = if (city.civ.isAtWar()) 100f else -50f // +100% in war, -50% in peace
-            if (warPeaceModifier != 0f) {
-                val stats = Stats()
-                stats.add(Stat.Production, warPeaceModifier)
-                sourceToStats.addStats(stats, "War/Peace", "Military production")
-            }
             // Territorial Warfare: city-states get ×3 military production
             if (city.civ.isCityState) {
                 val csStats = Stats()
@@ -596,6 +601,7 @@ class CityStats(val city: City) {
         newStatsBonusTree.addStats(getStatPercentBonusesFromConquestAndExpansion(), "Conquest & Expansion")
         newStatsBonusTree.addStats(getStatPercentBonusesFromCapitalProximity(), "Capital Proximity")
         newStatsBonusTree.addStats(getStatPercentBonusesFromImperialStability(), "Imperial Stability")
+        newStatsBonusTree.addStats(getStatPercentBonusesFromHappiness(), "Happiness")
         newStatsBonusTree.add(getStatsPercentBonusesFromUniquesBySource(currentConstruction))
         
         val localUniqueCache = LocalUniqueCache()

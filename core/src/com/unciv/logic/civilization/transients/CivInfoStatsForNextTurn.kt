@@ -179,13 +179,8 @@ class CivInfoStatsForNextTurn(val civInfo: Civilization) {
         if (techMaintenance > 0f)
             statMap["Tech maintenance"] = Stats(science = -techMaintenance)
 
-        if (civInfo.getHappiness() > 0) {
-            val excessHappinessConversion = Stats()
-            for (unique in civInfo.getMatchingUniques(UniqueType.ExcessHappinessToGlobalStat)) {
-                excessHappinessConversion.add(Stat.valueOf(unique.params[1]), (unique.params[0].toFloat() / 100f * civInfo.getHappiness()))
-            }
-            statMap.add("Policies", excessHappinessConversion)
-        }
+        // TW: Happiness bonus is now applied per-city as % bonus in CityStats
+        // Old excessHappinessConversion removed
 
         // negative gold hurts science
         // if we have - or 0, then the techs will never be complete and the tech button

@@ -648,6 +648,12 @@ object TileCultureLogic {
      *  City centers can also rebel (2-turn secession) and transfer to the dominant culture's civ.
      *  Colonial era (Renaissance to Modern): no rebellions or secessions. */
     private fun updateGraceAndRebellion(tile: Tile, civ: Civilization) {
+        // TW: First 100 turns — no rebellions/secessions, let civs establish borders
+        if (civ.gameInfo.turns < 100) {
+            tile.rebellionTurns = 0
+            return
+        }
+
         val ownerName = civ.civName
 
         // Grace period countdown

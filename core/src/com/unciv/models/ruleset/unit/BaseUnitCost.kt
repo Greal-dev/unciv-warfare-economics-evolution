@@ -39,6 +39,17 @@ class BaseUnitCost(val baseUnit: BaseUnit) {
             civInfo.gameInfo.getDifficulty().aiUnitCostModifier
 
         productionCost *= civInfo.gameInfo.speed.productionCostModifier
+
+        // TW: Military units cost ÷2 in war, nominal in peace
+        if (baseUnit.isMilitary && civInfo.isAtWar()) {
+            productionCost *= 0.5f
+        }
+
+        // TW: Specialization bonus — producing the same unit type twice in a row = -15% cost
+        if (city != null && city.cityConstructions.lastCompletedConstruction == baseUnit.name) {
+            productionCost *= 0.85f
+        }
+
         return productionCost.toInt()
     }
 
