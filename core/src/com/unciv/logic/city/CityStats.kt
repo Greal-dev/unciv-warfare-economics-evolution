@@ -257,7 +257,7 @@ class CityStats(val city: City) {
         return Stats(science = bonus, production = bonus, gold = bonus)
     }
 
-    /** Territorial Warfare: -30% production per conquered city (recovers 0.5%/turn) + -5% global per city owned */
+    /** Territorial Warfare: -30% production per conquered city (recovers 0.5%/turn) + -1% global per city owned */
     @Readonly
     private fun getStatPercentBonusesFromConquestAndExpansion(): Stats? {
         val civ = city.civ
@@ -273,9 +273,9 @@ class CityStats(val city: City) {
             productionMalus -= conquestPenalty
         }
 
-        // Expansion malus: -5% per city beyond the first
+        // Expansion malus: -1% per city beyond the first (light penalty, culture already penalizes)
         if (civ.cities.size > 1)
-            productionMalus -= 5f * (civ.cities.size - 1)
+            productionMalus -= 1f * (civ.cities.size - 1)
 
         return if (productionMalus == 0f) null else Stats(production = productionMalus)
     }
@@ -481,9 +481,8 @@ class CityStats(val city: City) {
                 continue
             }
             val tileStats = tile.stats.getTileStats(city, city.civ, localUniqueCache)
-            // TW: Tile production becomes % bonus, not base stat
-            totalTileProduction += tileStats.production
-            tileStats.production = 0f
+            // TW: Tile production stays as base stat (not converted to % bonus)
+            // This ensures the production base is high enough for the -60% penalty cap to work
             // Territorial Warfare: for worked tiles, only add non-food stats
             val nonFoodStats = tileStats.clone().apply { food = 0f }
             stats.add(nonFoodStats)
@@ -505,7 +504,7 @@ class CityStats(val city: City) {
         stats.food += totalTerritoryFood * foodEfficiency
         stats.gold += totalTileTax
 
-        tileProductionBonus = totalTileProduction  // TW: store for % bonus
+        tileProductionBonus = 0f  // TW: tile production is now base stat, not % bonus
         statsFromTiles = stats
     }
 
@@ -659,8 +658,11 @@ class CityStats(val city: City) {
 
         val statPercentBonusesSum = statPercentBonusTree.totalStats
 
+        // TW: Cap production penalties at -60% (floor = 40% of theoretical production)
+        // Prevents penalty stacking (conquest + stability + expansion + happiness) from zeroing out cities
+        val cappedProductionPercent = statPercentBonusesSum.production.coerceAtLeast(-60f)
         for (entry in newFinalStatList.values)
-            entry.production *= statPercentBonusesSum.production.toPercent()
+            entry.production *= cappedProductionPercent.toPercent()
 
         // Territorial Warfare: exponential-decay production growth in Industrial era
         // f(x) = 1 + 2.886 * (1 - e^(-0.00693x))
@@ -679,21 +681,34 @@ class CityStats(val city: City) {
         // TW: Production smoothing — city production converges toward computed potential
         // at 5% of the gap per turn. Prevents instant jumps and makes recovery gradual.
         val computedProduction = newFinalStatList.values.map { it.production }.sum()
+        // TW: Production smoothing — converges toward computed potential at 5%/turn
+        // Floor: smoothedProduction never below 40% of computed (matches the -60% penalty cap)
         if (computedProduction > 0f) {
-            if (city.smoothedProduction < 0f) {
-                // First time: initialize to computed production
-                city.smoothedProduction = computedProduction
-            } else {
-                // Converge toward target: 5% of gap per turn
-                val gap = computedProduction - city.smoothedProduction
-                city.smoothedProduction += 0.05f * gap
-                // Apply the smoothed production: scale all production entries proportionally
-                if (computedProduction > 0.1f) {
-                    val ratio = city.smoothedProduction / computedProduction
-                    for (entry in newFinalStatList.values)
-                        entry.production *= ratio
-                }
+            val smoothingFloor = computedProduction * 0.40f
+            if (city.smoothedProduction < 0f || city.smoothedProduction < smoothingFloor) {
+                city.smoothedProduction = smoothingFloor.coerceAtLeast(computedProduction * 0.40f)
             }
+            val gap = computedProduction - city.smoothedProduction
+            city.smoothedProduction += 0.05f * gap
+            // Apply the smoothed production: scale all production entries proportionally
+            if (computedProduction > 0.1f) {
+                val ratio = city.smoothedProduction / computedProduction
+                for (entry in newFinalStatList.values)
+                    entry.production *= ratio
+            }
+        }
+
+        // TW DEBUG: Log production breakdown for human player's cities
+        if (city.civ.isHuman()) {
+            val finalProd = newFinalStatList.values.map { it.production }.sum()
+            val baseTotal = baseStatTree.children.values.sumOf { it.totalStats.production.toDouble() }.toFloat()
+            val pctBonuses = statPercentBonusesSum.production
+            System.err.println("TW-PROD [${city.name}] pop=${city.population.population} " +
+                "base=${"%.1f".format(baseTotal)} pctBonus=${"%.0f".format(pctBonuses)}% " +
+                "(capped=${"%.0f".format(cappedProductionPercent)}%) " +
+                "computed=${"%.1f".format(computedProduction)} " +
+                "smoothed=${"%.1f".format(city.smoothedProduction)} " +
+                "final=${"%.1f".format(finalProd)}")
         }
 
         // We only add the 'extra stats from production' AFTER we calculate the production INCLUDING BONUSES
@@ -831,16 +846,8 @@ class CityStats(val city: City) {
         if (newFinalStatList.values.map { it.production }.sum() < 1)  // Minimum production for things to progress
             newFinalStatList["Production"] = Stats(production = 1f)
 
-        // TW: Cap production increase at +5%/turn (reductions are immediate)
-        val prevProduction = city.previousTurnProduction
-        if (prevProduction > 0f) {
-            val totalProduction = newFinalStatList.values.map { it.production }.sum()
-            val maxAllowed = prevProduction * 1.05f
-            if (totalProduction > maxAllowed) {
-                val excess = totalProduction - maxAllowed
-                newFinalStatList["Production growth cap"] = Stats(production = -excess)
-            }
-        }
+        // TW: Production growth cap REMOVED — smoothing (5% convergence) already handles this
+        // The old cap trapped low-production cities at their previous value forever
 
         finalStatList = newFinalStatList
     }

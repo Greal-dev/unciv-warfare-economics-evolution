@@ -36,7 +36,7 @@ tasks.register<JavaExec>("run") {
     standardInput = System.`in`
     workingDir = assetsDir
     isIgnoreExitValue = true
-    maxHeapSize = "1G"
+    maxHeapSize = "2G"
 }
 
 tasks.register<JavaExec>("debug") {
