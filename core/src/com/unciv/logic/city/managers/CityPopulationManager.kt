@@ -100,6 +100,7 @@ class CityPopulationManager : IsPartOfGameInfoSerialization {
 
 
     fun nextTurn(food: Int) {
+
         // Territorial Warfare: demographic collapse & accelerated growth
         // - Famine: no food stockpile. If food < 0, lose 1 pop every 2 turns.
         // - Growth: when food > 0, food stored is doubled (2× faster growth).
@@ -117,18 +118,24 @@ class CityPopulationManager : IsPartOfGameInfoSerialization {
             return
         }
 
-        // Accelerated growth: 2× food accumulation
-        foodStored += food * 2
-
         val foodNeededToGrow = getFoodToNextPopulation()
-        if (foodStored < foodNeededToGrow) return
+
+        // TW: If foodStored already reached threshold, grow immediately (prevents 99/99 stall)
+        if (foodStored >= foodNeededToGrow) {
+            // Skip straight to growth — don't let food=0 rounding block it
+        } else {
+            // Accelerated growth: 2× food accumulation
+            foodStored += food * 2
+            if (foodStored < foodNeededToGrow) return
+        }
 
         // What if the stores are already over foodNeededToGrow but NullifiesGrowth is in effect?
         if (city.getMatchingUniques(UniqueType.NullifiesGrowth).any())
             return
 
-        // Hard block growth when using Avoid Growth, cap stored food
-        if (city.avoidGrowth) {
+        // TW: Avoid Growth disabled — in Territorial Warfare, population is critical
+        // and avoiding growth makes no strategic sense with population-based production
+        if (false && city.avoidGrowth) {
             foodStored = foodNeededToGrow
             return
         }

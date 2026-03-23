@@ -97,10 +97,14 @@ object TileCultureLogic {
         }
     }
 
-    /** Mountains and coasts are cultural barriers: they receive influence but don't project any. */
+    /** Mountains are absolute cultural barriers (no projection at all).
+     *  Coasts are barriers toward land only — they project to other water tiles. */
     @Readonly
-    private fun isCulturalBarrier(tile: Tile): Boolean =
-        tile.baseTerrain == Constants.mountain || tile.baseTerrain == Constants.coast
+    private fun isCulturalBarrier(source: Tile, target: Tile): Boolean {
+        if (source.baseTerrain == Constants.mountain) return true
+        if (source.baseTerrain == Constants.coast && target.isLand) return true  // coast → land blocked
+        return false
+    }
 
     /** TW: Check if a city is a conquered enemy capital (behaves culturally like a puppet). */
     @Readonly
@@ -495,11 +499,11 @@ object TileCultureLogic {
         }
 
         // 6. Tile-to-tile diffusion: only from OWNED tiles (unowned wilderness doesn't project)
-        //    Mountains and coasts are cultural barriers — they don't project influence
+        //    Mountains block all projection. Coasts block projection to land but not to other water.
         for (neighbor in tile.neighbors) {
             if (neighbor.cultureMap.isEmpty()) continue
             if (neighbor.getOwner() == null) continue  // unowned tiles don't diffuse
-            if (isCulturalBarrier(neighbor)) continue  // barriers receive but don't project
+            if (isCulturalBarrier(neighbor, tile)) continue  // check source→target barrier
             for ((civName, share) in neighbor.cultureMap) {
                 addInfluence(influences, civName, share * DIFFUSION_RATE)
             }
@@ -572,11 +576,11 @@ object TileCultureLogic {
         }
 
         // Tile diffusion: only from OWNED tiles (unowned wilderness doesn't project)
-        //    Mountains and coasts are cultural barriers — they don't project influence
+        //    Mountains block all projection. Coasts block projection to land but not to other water.
         for (neighbor in tile.neighbors) {
             if (neighbor.cultureMap.isEmpty()) continue
             if (neighbor.getOwner() == null) continue
-            if (isCulturalBarrier(neighbor)) continue  // barriers receive but don't project
+            if (isCulturalBarrier(neighbor, tile)) continue  // check source→target barrier
             for ((civName, share) in neighbor.cultureMap) {
                 addInfluence(influences, civName, share * PASSIVE_SPREAD)
             }

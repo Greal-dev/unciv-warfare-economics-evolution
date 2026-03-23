@@ -698,19 +698,6 @@ class CityStats(val city: City) {
             }
         }
 
-        // TW DEBUG: Log production breakdown for human player's cities
-        if (city.civ.isHuman()) {
-            val finalProd = newFinalStatList.values.map { it.production }.sum()
-            val baseTotal = baseStatTree.children.values.sumOf { it.totalStats.production.toDouble() }.toFloat()
-            val pctBonuses = statPercentBonusesSum.production
-            System.err.println("TW-PROD [${city.name}] pop=${city.population.population} " +
-                "base=${"%.1f".format(baseTotal)} pctBonus=${"%.0f".format(pctBonuses)}% " +
-                "(capped=${"%.0f".format(cappedProductionPercent)}%) " +
-                "computed=${"%.1f".format(computedProduction)} " +
-                "smoothed=${"%.1f".format(city.smoothedProduction)} " +
-                "final=${"%.1f".format(finalProd)}")
-        }
-
         // We only add the 'extra stats from production' AFTER we calculate the production INCLUDING BONUSES
         val statsFromProduction = getStatsFromProduction(newFinalStatList.values.map { it.production }.sum())
         if (statsFromProduction != null && !statsFromProduction.isEmpty()) {
