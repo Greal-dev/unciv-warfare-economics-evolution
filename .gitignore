@@ -147,24 +147,22 @@ android/assets/GameSettings.json
 /android/assets/ModListCache.json
 android/assets/lasterror.txt
 android/assets/fonts/
-android/assets/maps/
-android/assets/mods/
 android/assets/MultiplayerGames/
 android/assets/music/
 android/assets/SaveFiles/
 android/assets/scenarios/
 
 # When running the desktop app locally using "gradlew desktop:run"
-lasterror.txt
-GameSettings.json
-ModListCache.json
-fonts/
-maps/
-mods/
-MultiplayerGames/
-music/
-SaveFiles/
-scenarios/
+/lasterror.txt
+/GameSettings.json
+/ModListCache.json
+/fonts/
+/maps/
+/mods/
+/MultiplayerGames/
+/music/
+/SaveFiles/
+/scenarios/
 
 # server artifacts
 server.auth
@@ -185,6 +183,9 @@ package.json
 # Unsorted additions
 # Detekt
 detekt/reports.html
+
+# Backup of upstream .git dirs from imported mods
+**/.git_backup/
 
 # When you test the wiki by running mkdocs locally:
 /site/
