@@ -62,7 +62,8 @@ object NextTurnAutomation {
             DiplomacyAutomation.offerResearchAgreement(civInfo)
             DiplomacyAutomation.offerDefensivePact(civInfo)
             TradeAutomation.exchangeLuxuries(civInfo)
-            
+            com.unciv.logic.diplomacy.territory.TerritoryTradeAI.proposeTradesIfDue(civInfo)
+
             issueRequests(civInfo)
             adoptPolicy(civInfo)  // todo can take a second - why?
             freeUpSpaceResources(civInfo)
