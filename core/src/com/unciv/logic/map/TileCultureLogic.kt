@@ -38,12 +38,15 @@ object TileCultureLogic {
     private const val BASE_GROWTH = 0.005f          // owner's natural assimilation
     private const val CITY_INFLUENCE_ADJ = 0.04f    // from adjacent city center (distance 1) — ×2
     private const val CITY_INFLUENCE_NEAR = 0.02f   // from city center at distance 2 — ×2
-    private const val BARBARIAN_NO_CITY_3 = 0.01f   // barbarian growth if no city within 3 tiles
-    private const val BARBARIAN_NO_CITY_4 = 0.02f   // barbarian growth if no city within 4 tiles
-    private const val BARBARIAN_NO_CITY_5 = 0.03f   // barbarian growth if no city within 5+ tiles
+    private const val CITY_INFLUENCE_FAR3 = 0.01f   // distance 3 — always active (radius ≥3 from start)
+    private const val CITY_INFLUENCE_FAR4 = 0.005f  // distance 4 — Renaissance+ projecting civ
+    private const val CITY_INFLUENCE_FAR5 = 0.003f  // distance 5 — Atomic+ projecting civ
+    private const val BARBARIAN_NO_CITY_4 = 0.01f   // barbarian growth if no city within (4 + radiusBonus) tiles
+    private const val BARBARIAN_NO_CITY_5 = 0.02f   // barbarian growth if no city within (5 + radiusBonus) tiles
+    private const val BARBARIAN_NO_CITY_6 = 0.03f   // barbarian growth if no city within (6 + radiusBonus)+ tiles
     private const val BARBARIAN_DESERT = 0.01f      // extra barbarian pressure on desert
     private const val BARBARIAN_TUNDRA = 0.01f      // extra barbarian pressure on tundra/snow
-    private const val BARBARIAN_JUNGLE = 0.005f     // extra barbarian pressure on jungle
+    private const val BARBARIAN_JUNGLE = 0.01f      // extra barbarian pressure on jungle
     private const val GARRISON_PACIFICATION = 0.05f // garrison converts 5% of foreign culture per turn
     private const val DIFFUSION_RATE = 0.02f        // per neighbor, proportional to neighbor's composition
     private const val IMPROVEMENT_BONUS = 0.005f    // per non-pillaged improvement on tile
@@ -80,6 +83,59 @@ object TileCultureLogic {
     private const val DECOLONIZATION_CITY_PRESSURE = 0.10f  // +10% barbarian on city center
     private const val DECOLONIZATION_TILE_PRESSURE = 0.05f  // +5% barbarian on all tiles
 
+
+    /** Cultural radius of cities grows with the projecting civ's era:
+     *   Antiquity..Medieval (1–3) → 3 tiles
+     *   Renaissance..Modern (4–6) → 4 tiles
+     *   Atomic..Information (7–8) → 5 tiles
+     *  Used to (a) project ethno-cultural influence further as civilizations mature,
+     *  (b) shift barbarian-pressure thresholds outward so the gap between cities
+     *  shrinks over time. */
+    @Readonly
+    fun getCityCultureRadius(eraNumber: Int): Int = when {
+        eraNumber >= 7 -> 5
+        eraNumber >= 4 -> 4
+        else -> 3
+    }
+
+    /** Bonus added to barbarian-pressure distance thresholds based on the most
+     *  advanced era in play (or the tile owner's era if any). */
+    @Readonly
+    private fun getBarbarianRadiusBonus(tile: Tile): Int {
+        val ownerCiv = tile.getOwner()
+        val era = ownerCiv?.getEraNumber() ?: run {
+            var maxEra = 1
+            for (civ in tile.tileMap.gameInfo.civilizations) {
+                if (!civ.isAlive() || civ.isBarbarian) continue
+                val e = civ.getEraNumber()
+                if (e > maxEra) maxEra = e
+            }
+            maxEra
+        }
+        return getCityCultureRadius(era) - 3
+    }
+
+    /** Add city-center cultural influence at distances 3 to 5 (long-range projection).
+     *  Each contributing city projects only if its civ's era allows that distance.
+     *  Distance 1 and 2 are handled separately upstream (they keep mountain blocking). */
+    private fun addLongRangeCityInfluences(tile: Tile, influences: HashMap<String, Float>): Boolean {
+        var found = false
+        for (distance in 3..5) {
+            val rate = when (distance) {
+                3 -> CITY_INFLUENCE_FAR3
+                4 -> CITY_INFLUENCE_FAR4
+                else -> CITY_INFLUENCE_FAR5
+            }
+            for (otherTile in tile.getTilesAtDistance(distance)) {
+                if (!otherTile.isCityCenter()) continue
+                val otherCity = otherTile.getCity() ?: continue
+                if (distance > getCityCultureRadius(otherCity.civ.getEraNumber())) continue
+                addCityInfluence(influences, otherTile, rate)
+                found = true
+            }
+        }
+        return found
+    }
 
     /** Ocean and ice tiles have no population — excluded from culture system. */
     @Readonly
@@ -250,6 +306,11 @@ object TileCultureLogic {
                 propagateCulture(tile, civName, 2f) // doubled rates since processed every 2 turns
             }
             updateGraceAndRebellion(tile, civ)
+
+            // TW: Decrement combat damage stacks on improvements
+            if (tile.combatDamageStacks.isNotEmpty()) {
+                tile.combatDamageStacks = ArrayList(tile.combatDamageStacks.map { it - 1 }.filter { it > 0 })
+            }
         }
 
         // Passive cultural spread to adjacent unowned tiles
@@ -353,6 +414,8 @@ object TileCultureLogic {
         // 2. City center influence: 25% owner + 75% city center's cultural composition
         var hasNearbyCity = false
         for (neighbor in tile.neighbors) {
+            // Mountains block city influence — skip if neighbor is a mountain (no adjacency)
+            if (neighbor.baseTerrain == Constants.mountain && !neighbor.isCityCenter()) continue
             if (neighbor.isCityCenter()) {
                 addCityInfluence(influences, neighbor, CITY_INFLUENCE_ADJ)
                 hasNearbyCity = true
@@ -364,6 +427,7 @@ object TileCultureLogic {
                 }
             }
             // Check distance-2 cities (neighbors of neighbors)
+            // Mountains block the path — if the intermediate tile is a mountain, no influence
             for (nn in neighbor.neighbors) {
                 if (nn == tile) continue
                 if (nn.isCityCenter()) {
@@ -372,7 +436,9 @@ object TileCultureLogic {
                 }
             }
         }
-        // Barbarian pressure if no city nearby (distance-based)
+        // Long-range city influence (distance 3–5, era-gated)
+        if (addLongRangeCityInfluences(tile, influences)) hasNearbyCity = true
+        // Barbarian pressure if no city nearby (distance-based, shifted outward as civs mature)
         // Optimized: manual min instead of flatMap+filter+minOfOrNull
         if (!hasNearbyCity) {
             var closestCityDist = Int.MAX_VALUE
@@ -385,12 +451,13 @@ object TileCultureLogic {
                 }
                 if (closestCityDist <= 2) break
             }
-            if (closestCityDist >= 5) {
+            val radiusBonus = getBarbarianRadiusBonus(tile)
+            if (closestCityDist >= 6 + radiusBonus) {
+                addInfluence(influences, "Barbarians", BARBARIAN_NO_CITY_6)
+            } else if (closestCityDist >= 5 + radiusBonus) {
                 addInfluence(influences, "Barbarians", BARBARIAN_NO_CITY_5)
-            } else if (closestCityDist >= 4) {
+            } else if (closestCityDist >= 4 + radiusBonus) {
                 addInfluence(influences, "Barbarians", BARBARIAN_NO_CITY_4)
-            } else if (closestCityDist >= 3) {
-                addInfluence(influences, "Barbarians", BARBARIAN_NO_CITY_3)
             }
         }
 
@@ -526,6 +593,8 @@ object TileCultureLogic {
         // City center influence: 25% owner + 75% city center's cultural composition
         var hasNearbyCity = false
         for (neighbor in tile.neighbors) {
+            // Mountains block city influence
+            if (neighbor.baseTerrain == Constants.mountain && !neighbor.isCityCenter()) continue
             if (neighbor.isCityCenter()) {
                 addCityInfluence(influences, neighbor, CITY_INFLUENCE_ADJ)
                 hasNearbyCity = true
@@ -536,6 +605,7 @@ object TileCultureLogic {
                     addInfluence(influences, neighborCity.civ.civName, CAPITAL_ADJ_BONUS)
                 }
             }
+            // Mountains block distance-2 city influence path
             for (nn in neighbor.neighbors) {
                 if (nn == tile) continue
                 if (nn.isCityCenter()) {
@@ -544,18 +614,21 @@ object TileCultureLogic {
                 }
             }
         }
+        // Long-range city influence (distance 3–5, era-gated)
+        if (addLongRangeCityInfluences(tile, influences)) hasNearbyCity = true
         if (!hasNearbyCity) {
             val closestCityDist = tile.tileMap.gameInfo.civilizations
                 .filter { it.isAlive() && !it.isBarbarian }
                 .flatMap { it.cities }
                 .minOfOrNull { it.getCenterTile().aerialDistanceTo(tile) }
                 ?: Int.MAX_VALUE
-            if (closestCityDist >= 5) {
+            val radiusBonus = getBarbarianRadiusBonus(tile)
+            if (closestCityDist >= 6 + radiusBonus) {
+                addInfluence(influences, "Barbarians", BARBARIAN_NO_CITY_6)
+            } else if (closestCityDist >= 5 + radiusBonus) {
                 addInfluence(influences, "Barbarians", BARBARIAN_NO_CITY_5)
-            } else if (closestCityDist >= 4) {
+            } else if (closestCityDist >= 4 + radiusBonus) {
                 addInfluence(influences, "Barbarians", BARBARIAN_NO_CITY_4)
-            } else if (closestCityDist >= 3) {
-                addInfluence(influences, "Barbarians", BARBARIAN_NO_CITY_3)
             }
         }
 
@@ -638,7 +711,7 @@ object TileCultureLogic {
     }
 
     /** Normalize all entries so they sum to 1.0. Remove tiny entries. */
-    private fun normalizeAll(map: HashMap<String, Float>) {
+    fun normalizeAll(map: HashMap<String, Float>) {
         // Remove tiny values first
         map.entries.removeAll { it.value < 0.001f }
         val total = map.values.sum()

@@ -128,6 +128,11 @@ object Battle {
 
         val damageDealt = takeDamage(attacker, defender)
 
+        // TW: Combat damages improvements on the tile (-10% productivity, 5 turns, max 3 stacks)
+        if (attackedTile.improvement != null && attackedTile.combatDamageStacks.size < 3) {
+            attackedTile.combatDamageStacks.add(5) // 5 turns duration
+        }
+
         // check if unit is captured by the attacker (prize ships unique)
         // As ravignir clarified in issue #4374, this only works for aggressor
         val captureMilitaryUnitSuccess = BattleUnitCapture.tryCaptureMilitaryUnit(attacker, defender, attackedTile)
@@ -414,6 +419,9 @@ object Battle {
         val defenderDamageDealt = attackerHealthBefore - attacker.getHealth()
         val attackerDamageDealt = defenderHealthBefore - defender.getHealth()
 
+        chargeCombatLogisticsCost(attacker, defenderDamageDealt)
+        chargeCombatLogisticsCost(defender, attackerDamageDealt)
+
         if (attacker is MapUnitCombatant)
             for (unique in attacker.unit.getTriggeredUniques(UniqueType.TriggerUponLosingHealth)
                     { it.params[0].toInt() <= defenderDamageDealt }) {
@@ -434,6 +442,19 @@ object Battle {
 
         plunderFromDamage(attacker, defender, attackerDamageDealt)
         return DamageDealt(attackerDamageDealt, defenderDamageDealt)
+    }
+
+    private fun chargeCombatLogisticsCost(combatant: ICombatant, hpLost: Int) {
+        if (combatant !is MapUnitCombatant) return
+        val cost = CombatCostCalculator.applyCost(combatant, hpLost)
+        if (cost <= 0) return
+        val civ = combatant.getCivInfo()
+        civ.addNotification(
+            "Combat logistics: [-$cost] gold (${combatant.getName()} lost $hpLost HP)",
+            combatant.getTile().position,
+            NotificationCategory.War,
+            NotificationIcon.War, "StatIcons/Gold"
+        )
     }
 
     private fun plunderFromDamage(
