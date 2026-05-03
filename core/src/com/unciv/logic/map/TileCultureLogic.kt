@@ -58,7 +58,7 @@ object TileCultureLogic {
 
     // Global civilizational crises — each crisis has its own year and duration
     private val CRISES = arrayOf(
-        Pair(-1200, 10),  // 1200 BC — Bronze Age collapse, 10 turns
+        Pair(-1200, 5),   // 1200 BC — Bronze Age collapse, 5 turns (halved from 10)
         Pair(450, 20),    // 450 AD — Fall of Rome, 20 turns
         Pair(2100, 20)    // 2100 AD — Late modern collapse, 20 turns
     )
