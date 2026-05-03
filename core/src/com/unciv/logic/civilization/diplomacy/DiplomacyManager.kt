@@ -209,6 +209,10 @@ class DiplomacyManager() : IsPartOfGameInfoSerialization {
     /** Total of each turn Science during Research Agreement */
     internal var totalOfScienceDuringRA = 0
 
+    /** Territorial Warfare: per-target cooldown after a refused territory trade.
+     *  Maps target civName -> turn at which proposer can re-propose. */
+    var territoryTradeCooldown = HashMap<String, Int>()
+
     /**
      * How quickly do we forget past relationships?
      * 
