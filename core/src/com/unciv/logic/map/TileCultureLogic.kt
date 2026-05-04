@@ -17,7 +17,7 @@ import yairm210.purity.annotations.Readonly
  * Culture sources:
  * - Base owner growth: +1%/turn
  * - Adjacent city center (any civ): +3%/turn for that civ
- * - Military garrison (any civ): +5%/turn for that civ
+ * - Military garrison (any civ): +10%/turn for that civ
  * - Tile diffusion: each neighbor pushes its composition proportionally (1%/neighbor/turn)
  *
  * All civs compete for cultural influence simultaneously.
@@ -47,7 +47,7 @@ object TileCultureLogic {
     private const val BARBARIAN_DESERT = 0.01f      // extra barbarian pressure on desert
     private const val BARBARIAN_TUNDRA = 0.01f      // extra barbarian pressure on tundra/snow
     private const val BARBARIAN_JUNGLE = 0.01f      // extra barbarian pressure on jungle
-    private const val GARRISON_PACIFICATION = 0.05f // garrison converts 5% of foreign culture per turn
+    private const val GARRISON_PACIFICATION = 0.10f // garrison converts 10% of foreign culture per turn
     private const val DIFFUSION_RATE = 0.02f        // per neighbor, proportional to neighbor's composition
     private const val IMPROVEMENT_BONUS = 0.005f    // per non-pillaged improvement on tile
     private const val ROAD_CITY_BONUS = 0.01f       // per nearby city on a tile with road
