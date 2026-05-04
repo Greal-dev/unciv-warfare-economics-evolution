@@ -49,7 +49,7 @@ object TileCultureLogic {
     private const val BARBARIAN_JUNGLE = 0.01f      // extra barbarian pressure on jungle
     private const val GARRISON_PACIFICATION = 0.10f // garrison converts 10% of foreign culture per turn
     private const val DIFFUSION_RATE = 0.02f        // per neighbor, proportional to neighbor's composition
-    private const val IMPROVEMENT_BONUS = 0.005f    // per non-pillaged improvement on tile
+    private const val IMPROVEMENT_BONUS = 0.02f     // per non-pillaged improvement on tile
     private const val ROAD_CITY_BONUS = 0.01f       // per nearby city on a tile with road
     private const val WONDER_AURA_RATE = 0.005f     // per wonder in city, per turn (capped)
     private const val WONDER_AURA_RADIUS = 4        // tiles around city projecting wonder aura
