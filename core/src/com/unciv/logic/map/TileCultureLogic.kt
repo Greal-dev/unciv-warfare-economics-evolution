@@ -51,6 +51,9 @@ object TileCultureLogic {
     private const val DIFFUSION_RATE = 0.02f        // per neighbor, proportional to neighbor's composition
     private const val IMPROVEMENT_BONUS = 0.005f    // per non-pillaged improvement on tile
     private const val ROAD_CITY_BONUS = 0.01f       // per nearby city on a tile with road
+    private const val WONDER_AURA_RATE = 0.005f     // per wonder in city, per turn (capped)
+    private const val WONDER_AURA_RADIUS = 4        // tiles around city projecting wonder aura
+    private const val WONDER_AURA_CAP_PER_CITY = 3  // max wonders contributing per city
 
     // Passive spread to unowned neighbors
     private const val PASSIVE_SPREAD = 0.02f
@@ -113,6 +116,23 @@ object TileCultureLogic {
             maxEra
         }
         return getCityCultureRadius(era) - 3
+    }
+
+    /** Wonder soft-power aura: each city with built wonders projects extra culture for
+     *  its civ on tiles within [WONDER_AURA_RADIUS] of the city center. Each wonder adds
+     *  [WONDER_AURA_RATE] up to [WONDER_AURA_CAP_PER_CITY]. */
+    private fun addWonderAura(tile: Tile, influences: HashMap<String, Float>) {
+        val seenCities = HashSet<com.unciv.logic.city.City>()
+        for (otherTile in tile.getTilesInDistance(WONDER_AURA_RADIUS)) {
+            if (!otherTile.isCityCenter()) continue
+            val city = otherTile.getCity() ?: continue
+            if (!seenCities.add(city)) continue
+            val wonderCount = city.cityConstructions.getBuiltBuildings()
+                .count { it.isAnyWonder() }
+                .coerceAtMost(WONDER_AURA_CAP_PER_CITY)
+            if (wonderCount <= 0) continue
+            addInfluence(influences, city.civ.civName, WONDER_AURA_RATE * wonderCount)
+        }
     }
 
     /** Add city-center cultural influence at distances 3 to 5 (long-range projection).
@@ -438,6 +458,8 @@ object TileCultureLogic {
         }
         // Long-range city influence (distance 3–5, era-gated)
         if (addLongRangeCityInfluences(tile, influences)) hasNearbyCity = true
+        // Wonder soft-power aura (distance 4)
+        addWonderAura(tile, influences)
         // Barbarian pressure if no city nearby (distance-based, shifted outward as civs mature)
         // Optimized: manual min instead of flatMap+filter+minOfOrNull
         if (!hasNearbyCity) {
@@ -616,6 +638,8 @@ object TileCultureLogic {
         }
         // Long-range city influence (distance 3–5, era-gated)
         if (addLongRangeCityInfluences(tile, influences)) hasNearbyCity = true
+        // Wonder soft-power aura (distance 4)
+        addWonderAura(tile, influences)
         if (!hasNearbyCity) {
             val closestCityDist = tile.tileMap.gameInfo.civilizations
                 .filter { it.isAlive() && !it.isBarbarian }

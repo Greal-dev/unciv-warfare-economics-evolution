@@ -70,6 +70,20 @@ class MajorCivDiplomacyTable(private val diplomacyScreen: DiplomacyScreen) {
                 getNegotiatePeaceMajorCivButton(otherCiv, otherCivDiplomacyManager)
 
             diplomacyTable.add(negotiatePeaceButton).row()
+
+            // Territorial peace: open trade screen with peace treaty pre-included in our offer
+            val territorialPeaceButton = "Negotiate territorial peace".toTextButton()
+            territorialPeaceButton.onClick {
+                UncivGame.Current.pushScreen(
+                    com.unciv.ui.screens.territoryscreen.TerritoryExchangeScreen(
+                        viewingCiv, otherCiv,
+                        com.unciv.ui.screens.territoryscreen.TerritoryExchangeMode.MajorCivNegotiation,
+                        includePeaceInOffer = true
+                    )
+                )
+            }
+            if (diplomacyScreen.isNotPlayersTurn()) territorialPeaceButton.disable()
+            diplomacyTable.add(territorialPeaceButton).row()
         }
 
         // Territory Exchange (suzerain → vassal only)

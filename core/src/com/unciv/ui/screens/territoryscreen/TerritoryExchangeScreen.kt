@@ -40,7 +40,10 @@ enum class TerritoryExchangeMode {
 class TerritoryExchangeScreen(
     private val playerCiv: Civilization,
     private val otherCiv: Civilization,
-    private val mode: TerritoryExchangeMode = TerritoryExchangeMode.VassalDirective
+    private val mode: TerritoryExchangeMode = TerritoryExchangeMode.VassalDirective,
+    /** When true (only meaningful in MajorCivNegotiation), the offer auto-includes a peace treaty
+     *  in the offered package. Used when negotiating a war's end through territorial concessions. */
+    private val includePeaceInOffer: Boolean = false
 ) : BaseScreen(), RecreateOnResize {
 
     companion object {
@@ -311,19 +314,24 @@ class TerritoryExchangeScreen(
         positionSidePanel()
     }
 
-    private fun buildOffer(): com.unciv.logic.diplomacy.territory.TerritoryTradeOffer =
-        com.unciv.logic.diplomacy.territory.TerritoryTradeOffer(
+    private fun buildOffer(): com.unciv.logic.diplomacy.territory.TerritoryTradeOffer {
+        val offeredAgreements = if (includePeaceInOffer)
+            setOf(com.unciv.logic.diplomacy.territory.SideAgreement.PeaceTreaty)
+        else emptySet()
+        return com.unciv.logic.diplomacy.territory.TerritoryTradeOffer(
             fromCiv = playerCiv,
             toCiv = otherCiv,
             offered = com.unciv.logic.diplomacy.territory.TradePackage(
                 tiles = tilesToGive.toList(),
-                gold = goldOffered.coerceAtMost(playerCiv.gold)
+                gold = goldOffered.coerceAtMost(playerCiv.gold),
+                sideAgreements = offeredAgreements
             ),
             requested = com.unciv.logic.diplomacy.territory.TradePackage(
                 tiles = tilesToTake.toList(),
                 gold = goldRequested
             )
         )
+    }
 
     private fun updateCounts() {
         val takeLabel = sidePanel.findActor<com.badlogic.gdx.scenes.scene2d.ui.Label>("takeCount")
@@ -457,5 +465,5 @@ class TerritoryExchangeScreen(
 
     // ── Lifecycle ──
 
-    override fun recreate(): BaseScreen = TerritoryExchangeScreen(playerCiv, otherCiv, mode)
+    override fun recreate(): BaseScreen = TerritoryExchangeScreen(playerCiv, otherCiv, mode, includePeaceInOffer)
 }
