@@ -33,13 +33,17 @@ object TerritoryTradeAI {
             if (other == civ || !other.isAlive() || other.isBarbarian || other.isSpectator()) continue
             if (other.isCityState) continue
             if (civ.isAtWarWith(other)) continue
-            // V1: skip humans entirely (UI not implemented yet)
-            if (other.isHuman()) continue
             val diplo = civ.getDiplomacyManager(other) ?: continue
             if (diplo.relationshipIgnoreAfraid() == RelationshipLevel.Enemy ||
                 diplo.relationshipIgnoreAfraid() == RelationshipLevel.Unforgivable) continue
 
             val offer = composeOffer(civ, other) ?: continue
+            if (other.isHuman()) {
+                // Queue an alert for the human; they'll see it at their next turn start.
+                queueOfferForHuman(offer)
+                acceptedCount++ // count it to throttle so we don't spam the player
+                continue
+            }
             if (decideAccept(other, offer)) {
                 TerritoryTradeManager.apply(offer)
                 acceptedCount++
@@ -48,6 +52,31 @@ object TerritoryTradeAI {
             }
         }
         markEvaluated(civ)
+    }
+
+    /** Receives a human-initiated offer, returns the AI's verdict synchronously. */
+    fun respondToHumanOffer(offer: TerritoryTradeOffer): HumanOfferVerdict {
+        val ai = offer.toCiv
+        if (offer.isUltimatum()) {
+            handleUltimatum(ai, offer)
+            // handleUltimatum may have declared war; reflect that in the verdict
+            return if (ai.isAtWarWith(offer.fromCiv)) HumanOfferVerdict.UltimatumWar
+                   else HumanOfferVerdict.UltimatumRefused
+        }
+        return if (decideAccept(ai, offer)) HumanOfferVerdict.Accepted
+               else HumanOfferVerdict.Refused
+    }
+
+    enum class HumanOfferVerdict { Accepted, Refused, UltimatumWar, UltimatumRefused }
+
+    private fun queueOfferForHuman(offer: TerritoryTradeOffer) {
+        val payload = TerritoryTradePayload.encode(offer)
+        offer.toCiv.popupAlerts.add(
+            com.unciv.logic.civilization.PopupAlert(
+                com.unciv.logic.civilization.AlertType.TerritoryTradeOffer,
+                payload
+            )
+        )
     }
 
     private fun isDueForEvaluation(civ: Civilization): Boolean {

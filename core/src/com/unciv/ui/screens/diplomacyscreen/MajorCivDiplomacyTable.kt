@@ -77,11 +77,29 @@ class MajorCivDiplomacyTable(private val diplomacyScreen: DiplomacyScreen) {
             val territoryExchangeButton = "Territory Exchange".toTextButton()
             territoryExchangeButton.onClick {
                 UncivGame.Current.pushScreen(
-                    com.unciv.ui.screens.territoryscreen.TerritoryExchangeScreen(viewingCiv, otherCiv)
+                    com.unciv.ui.screens.territoryscreen.TerritoryExchangeScreen(
+                        viewingCiv, otherCiv,
+                        com.unciv.ui.screens.territoryscreen.TerritoryExchangeMode.VassalDirective
+                    )
                 )
             }
             if (diplomacyScreen.isNotPlayersTurn()) territoryExchangeButton.disable()
             diplomacyTable.add(territoryExchangeButton).row()
+        }
+
+        // Territory Trade Negotiation (any non-vassal major civ at peace)
+        if (!viewingCiv.isAtWarWith(otherCiv) && !otherCiv.isVassal() && !viewingCiv.isVassal()) {
+            val territoryTradeButton = "Propose Territory Trade".toTextButton()
+            territoryTradeButton.onClick {
+                UncivGame.Current.pushScreen(
+                    com.unciv.ui.screens.territoryscreen.TerritoryExchangeScreen(
+                        viewingCiv, otherCiv,
+                        com.unciv.ui.screens.territoryscreen.TerritoryExchangeMode.MajorCivNegotiation
+                    )
+                )
+            }
+            if (diplomacyScreen.isNotPlayersTurn()) territoryTradeButton.disable()
+            diplomacyTable.add(territoryTradeButton).row()
         }
 
         val demandsButton = "Demands".toTextButton()

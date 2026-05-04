@@ -122,6 +122,8 @@ class AlertPopup(
             AlertType.Event -> shouldOpen = addEvent()
             // TW: Vassal independence
             AlertType.VassalIndependenceRequest -> shouldOpen = addVassalIndependenceRequest()
+            // TW: Territory trade offer received from another civ
+            AlertType.TerritoryTradeOffer -> shouldOpen = addTerritoryTradeOffer()
         }
         if (shouldOpen) open()
         else viewingCiv.popupAlerts.remove(popupAlert)
@@ -663,6 +665,45 @@ class AlertPopup(
         val render = RenderEvent(event, worldScreen, unit) { close() }
         if (!render.isValid) return false
         add(render).pad(0f).row()
+        return true
+    }
+
+    private fun addTerritoryTradeOffer(): Boolean {
+        val offer = com.unciv.logic.diplomacy.territory.TerritoryTradePayload.decode(popupAlert.value, gameInfo)
+            ?: return false
+        if (offer.toCiv != viewingCiv) return false
+        val proposer = offer.fromCiv
+        val ourGain = com.unciv.logic.diplomacy.territory.TerritoryTradeOffer
+            .valueOfPackage(offer.offered, viewingCiv) -
+            com.unciv.logic.diplomacy.territory.TerritoryTradeOffer
+                .valueOfPackage(offer.requested, viewingCiv)
+
+        addLeaderName(proposer)
+        addGoodSizedLabel("[${proposer.civName}] proposes a territory trade").row()
+        val summary = buildString {
+            if (offer.offered.tiles.isNotEmpty()) append("They offer ${offer.offered.tiles.size} tiles\n")
+            if (offer.offered.gold > 0) append("They offer ${offer.offered.gold} gold\n")
+            if (offer.requested.tiles.isNotEmpty()) append("They request ${offer.requested.tiles.size} of your tiles\n")
+            if (offer.requested.gold > 0) append("They request ${offer.requested.gold} gold\n")
+            append("\nNet value to you: ${ourGain.toInt()}")
+            if (offer.isUltimatum()) append("\n\nThis is an ULTIMATUM.")
+        }
+        addGoodSizedLabel(summary).row()
+
+        addCloseButton("Accept") {
+            com.unciv.logic.diplomacy.territory.TerritoryTradeManager.apply(offer)
+            viewingCiv.addNotification(
+                "We accepted [${proposer.civName}]'s territory proposal",
+                NotificationCategory.Diplomacy, NotificationIcon.Diplomacy
+            )
+        }
+        addCloseButton("Refuse") {
+            com.unciv.logic.diplomacy.territory.TerritoryTradeManager.recordRefusal(offer)
+            if (offer.isUltimatum()) {
+                val diplo = viewingCiv.getDiplomacyManager(proposer)
+                if (diplo?.canDeclareWar() == true) diplo.declareWar()
+            }
+        }
         return true
     }
 

@@ -23,6 +23,13 @@ import com.unciv.ui.popups.ToastPopup
 import com.unciv.ui.screens.basescreen.BaseScreen
 import com.unciv.ui.screens.basescreen.RecreateOnResize
 
+enum class TerritoryExchangeMode {
+    /** Suzerain forces an exchange on a vassal — applied directly. */
+    VassalDirective,
+    /** Two major civs negotiate — proposal is sent to the other civ which decides. */
+    MajorCivNegotiation
+}
+
 /**
  * Full-screen map UI for exchanging territory between two civilizations.
  *
@@ -32,7 +39,8 @@ import com.unciv.ui.screens.basescreen.RecreateOnResize
  */
 class TerritoryExchangeScreen(
     private val playerCiv: Civilization,
-    private val otherCiv: Civilization
+    private val otherCiv: Civilization,
+    private val mode: TerritoryExchangeMode = TerritoryExchangeMode.VassalDirective
 ) : BaseScreen(), RecreateOnResize {
 
     companion object {
@@ -43,6 +51,10 @@ class TerritoryExchangeScreen(
 
     private val tilesToTake = mutableSetOf<Tile>()   // otherCiv -> playerCiv
     private val tilesToGive = mutableSetOf<Tile>()   // playerCiv -> otherCiv
+
+    // Negotiation extras (only used in MajorCivNegotiation mode)
+    private var goldOffered: Int = 0
+    private var goldRequested: Int = 0
 
     private val tileGroups = ArrayList<TileGroup>()
     private val scrollPane = TerritoryExchangeMapHolder()
@@ -196,6 +208,9 @@ class TerritoryExchangeScreen(
             sidePanel.add("Influence: 0".toLabel().also { it.name = "influenceChange" })
                 .colspan(2).left().row()
         }
+        if (mode == TerritoryExchangeMode.MajorCivNegotiation) {
+            buildNegotiationRows()
+        }
         sidePanel.addSeparator()
 
         val confirmBtn = "Confirm".toTextButton()
@@ -215,6 +230,101 @@ class TerritoryExchangeScreen(
         sidePanel.setPosition(stage.width - 10f, stage.height / 2, Align.right)
     }
 
+    private fun buildNegotiationRows() {
+        sidePanel.addSeparator()
+        sidePanel.add("Gold offered:".toLabel()).left()
+        val goldOfferedField = com.badlogic.gdx.scenes.scene2d.ui.TextField(
+            goldOffered.toString(),
+            BaseScreen.skin
+        )
+        goldOfferedField.textFieldFilter =
+            com.badlogic.gdx.scenes.scene2d.ui.TextField.TextFieldFilter.DigitsOnlyFilter()
+        goldOfferedField.addListener(object : com.badlogic.gdx.scenes.scene2d.utils.ChangeListener() {
+            override fun changed(event: com.badlogic.gdx.scenes.scene2d.utils.ChangeListener.ChangeEvent?,
+                                 actor: com.badlogic.gdx.scenes.scene2d.Actor?) {
+                goldOffered = goldOfferedField.text.toIntOrNull()?.coerceAtLeast(0) ?: 0
+                updateValuationLabels()
+            }
+        })
+        sidePanel.add(goldOfferedField).width(80f).row()
+
+        sidePanel.add("Gold requested:".toLabel()).left()
+        val goldRequestedField = com.badlogic.gdx.scenes.scene2d.ui.TextField(
+            goldRequested.toString(),
+            BaseScreen.skin
+        )
+        goldRequestedField.textFieldFilter =
+            com.badlogic.gdx.scenes.scene2d.ui.TextField.TextFieldFilter.DigitsOnlyFilter()
+        goldRequestedField.addListener(object : com.badlogic.gdx.scenes.scene2d.utils.ChangeListener() {
+            override fun changed(event: com.badlogic.gdx.scenes.scene2d.utils.ChangeListener.ChangeEvent?,
+                                 actor: com.badlogic.gdx.scenes.scene2d.Actor?) {
+                goldRequested = goldRequestedField.text.toIntOrNull()?.coerceAtLeast(0) ?: 0
+                updateValuationLabels()
+            }
+        })
+        sidePanel.add(goldRequestedField).width(80f).row()
+
+        sidePanel.addSeparator()
+        sidePanel.add("Value to you: 0".toLabel().also { it.name = "valueToUs" })
+            .colspan(2).left().row()
+        sidePanel.add("Value to them: 0".toLabel().also { it.name = "valueToThem" })
+            .colspan(2).left().row()
+        sidePanel.add("Verdict: empty".toLabel(Color.LIGHT_GRAY).also { it.name = "verdict" })
+            .colspan(2).left().row()
+    }
+
+    private fun updateValuationLabels() {
+        if (mode != TerritoryExchangeMode.MajorCivNegotiation) return
+        val offer = buildOffer()
+        val ourGain = com.unciv.logic.diplomacy.territory.TerritoryTradeOffer
+            .valueOfPackage(offer.requested, playerCiv) -
+            com.unciv.logic.diplomacy.territory.TerritoryTradeOffer
+                .valueOfPackage(offer.offered, playerCiv)
+        val theirGain = com.unciv.logic.diplomacy.territory.TerritoryTradeOffer
+            .valueOfPackage(offer.offered, otherCiv) -
+            com.unciv.logic.diplomacy.territory.TerritoryTradeOffer
+                .valueOfPackage(offer.requested, otherCiv)
+        sidePanel.findActor<com.badlogic.gdx.scenes.scene2d.ui.Label>("valueToUs")
+            ?.setText("Value to you: ${ourGain.toInt()}".tr())
+        sidePanel.findActor<com.badlogic.gdx.scenes.scene2d.ui.Label>("valueToThem")
+            ?.setText("Value to them: ${theirGain.toInt()}".tr())
+        val verdictLabel = sidePanel.findActor<com.badlogic.gdx.scenes.scene2d.ui.Label>("verdict")
+        when {
+            offer.isUltimatum() -> {
+                verdictLabel?.setText("ULTIMATUM — they may declare war!".tr())
+                verdictLabel?.color = Color.RED
+            }
+            theirGain >= 0f -> {
+                verdictLabel?.setText("Likely accepted".tr())
+                verdictLabel?.color = Color.GREEN
+            }
+            theirGain >= -50f -> {
+                verdictLabel?.setText("Borderline".tr())
+                verdictLabel?.color = Color.YELLOW
+            }
+            else -> {
+                verdictLabel?.setText("Likely refused".tr())
+                verdictLabel?.color = Color.ORANGE
+            }
+        }
+        sidePanel.pack()
+        positionSidePanel()
+    }
+
+    private fun buildOffer(): com.unciv.logic.diplomacy.territory.TerritoryTradeOffer =
+        com.unciv.logic.diplomacy.territory.TerritoryTradeOffer(
+            fromCiv = playerCiv,
+            toCiv = otherCiv,
+            offered = com.unciv.logic.diplomacy.territory.TradePackage(
+                tiles = tilesToGive.toList(),
+                gold = goldOffered.coerceAtMost(playerCiv.gold)
+            ),
+            requested = com.unciv.logic.diplomacy.territory.TradePackage(
+                tiles = tilesToTake.toList(),
+                gold = goldRequested
+            )
+        )
+
     private fun updateCounts() {
         val takeLabel = sidePanel.findActor<com.badlogic.gdx.scenes.scene2d.ui.Label>("takeCount")
         val giveLabel = sidePanel.findActor<com.badlogic.gdx.scenes.scene2d.ui.Label>("giveCount")
@@ -228,6 +338,7 @@ class TerritoryExchangeScreen(
             val sign = if (change > 0) "+" else ""
             influenceLabel?.setText("Influence: $sign$change".tr())
         }
+        if (mode == TerritoryExchangeMode.MajorCivNegotiation) updateValuationLabels()
         sidePanel.pack()
         positionSidePanel()
     }
@@ -240,8 +351,13 @@ class TerritoryExchangeScreen(
     }
 
     private fun confirmExchange() {
-        if (tilesToTake.isEmpty() && tilesToGive.isEmpty()) {
+        if (tilesToTake.isEmpty() && tilesToGive.isEmpty() && goldOffered == 0 && goldRequested == 0) {
             ToastPopup("No tiles selected", this)
+            return
+        }
+
+        if (mode == TerritoryExchangeMode.MajorCivNegotiation) {
+            confirmAsNegotiation()
             return
         }
 
@@ -260,6 +376,46 @@ class TerritoryExchangeScreen(
             executeTransfers()
             game.popScreen()
         }.open()
+    }
+
+    private fun confirmAsNegotiation() {
+        val offer = buildOffer()
+        val isUltimatum = offer.isUltimatum()
+        val message = buildString {
+            if (tilesToGive.isNotEmpty()) append("Offer ${tilesToGive.size} tiles to ${otherCiv.civName}\n")
+            if (tilesToTake.isNotEmpty()) append("Request ${tilesToTake.size} tiles from ${otherCiv.civName}\n")
+            if (goldOffered > 0) append("Offer $goldOffered gold\n")
+            if (goldRequested > 0) append("Request $goldRequested gold\n")
+            if (isUltimatum) {
+                append("\nThis is an ULTIMATUM. They may declare war if refused.\n")
+            }
+            append("\nSend proposal?")
+        }
+        ConfirmPopup(this, message, "Send", isConfirmPositive = !isUltimatum) {
+            sendProposal(offer)
+            game.popScreen()
+        }.open()
+    }
+
+    private fun sendProposal(offer: com.unciv.logic.diplomacy.territory.TerritoryTradeOffer) {
+        val verdict = com.unciv.logic.diplomacy.territory.TerritoryTradeAI.respondToHumanOffer(offer)
+        when (verdict) {
+            com.unciv.logic.diplomacy.territory.TerritoryTradeAI.HumanOfferVerdict.Accepted -> {
+                com.unciv.logic.diplomacy.territory.TerritoryTradeManager.apply(offer)
+                ToastPopup("[${otherCiv.civName}] accepted the proposal!", stage)
+            }
+            com.unciv.logic.diplomacy.territory.TerritoryTradeAI.HumanOfferVerdict.Refused -> {
+                com.unciv.logic.diplomacy.territory.TerritoryTradeManager.recordRefusal(offer)
+                ToastPopup("[${otherCiv.civName}] refused the proposal", stage)
+            }
+            com.unciv.logic.diplomacy.territory.TerritoryTradeAI.HumanOfferVerdict.UltimatumWar -> {
+                ToastPopup("[${otherCiv.civName}] declared war in response to your ultimatum!", stage)
+            }
+            com.unciv.logic.diplomacy.territory.TerritoryTradeAI.HumanOfferVerdict.UltimatumRefused -> {
+                com.unciv.logic.diplomacy.territory.TerritoryTradeManager.recordRefusal(offer)
+                ToastPopup("[${otherCiv.civName}] refused your ultimatum", stage)
+            }
+        }
     }
 
     private fun executeTransfers() {
@@ -301,5 +457,5 @@ class TerritoryExchangeScreen(
 
     // ── Lifecycle ──
 
-    override fun recreate(): BaseScreen = TerritoryExchangeScreen(playerCiv, otherCiv)
+    override fun recreate(): BaseScreen = TerritoryExchangeScreen(playerCiv, otherCiv, mode)
 }
