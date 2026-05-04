@@ -32,7 +32,8 @@ enum class AlertType : IsPartOfGameInfoSerialization {
     RecapturedCivilian,
     GameHasBeenWon,
     Event,
-    VassalIndependenceRequest
+    VassalIndependenceRequest,
+    TerritoryTradeOffer
 }
 
 class PopupAlert : IsPartOfGameInfoSerialization {
