@@ -419,8 +419,8 @@ object Battle {
         val defenderDamageDealt = attackerHealthBefore - attacker.getHealth()
         val attackerDamageDealt = defenderHealthBefore - defender.getHealth()
 
-        chargeCombatLogisticsCost(attacker, defenderDamageDealt)
-        chargeCombatLogisticsCost(defender, attackerDamageDealt)
+        chargeCombatLogisticsCost(attacker, defenderDamageDealt, CombatCostCalculator.ATTACKER_MULTIPLIER)
+        chargeCombatLogisticsCost(defender, attackerDamageDealt, CombatCostCalculator.DEFENDER_MULTIPLIER)
 
         if (attacker is MapUnitCombatant)
             for (unique in attacker.unit.getTriggeredUniques(UniqueType.TriggerUponLosingHealth)
@@ -444,9 +444,9 @@ object Battle {
         return DamageDealt(attackerDamageDealt, defenderDamageDealt)
     }
 
-    private fun chargeCombatLogisticsCost(combatant: ICombatant, hpLost: Int) {
+    private fun chargeCombatLogisticsCost(combatant: ICombatant, hpLost: Int, roleMultiplier: Float) {
         if (combatant !is MapUnitCombatant) return
-        val cost = CombatCostCalculator.applyCost(combatant, hpLost)
+        val cost = CombatCostCalculator.applyCost(combatant, hpLost, roleMultiplier)
         if (cost <= 0) return
         val civ = combatant.getCivInfo()
         civ.addNotification(

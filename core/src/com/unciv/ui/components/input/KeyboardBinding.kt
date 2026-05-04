@@ -77,6 +77,7 @@ enum class KeyboardBinding(
     LoadGame(Category.WorldScreen, KeyCharAndCode.ctrl('l')),   // Load
     ToggleResourceDisplay(Category.WorldScreen, KeyCharAndCode.ctrl('r')),  // Show Resources Icons
     ToggleYieldDisplay(Category.WorldScreen, KeyCharAndCode.ctrl('y')),  // Yield Icons, originally just "Y"
+    CultureMap(Category.WorldScreen, "Culture heatmap", KeyCharAndCode.ctrl('h')),
     // End of Civ5-inspired bindings
 
     QuitGame(Category.WorldScreen, KeyCharAndCode.ctrl('q')),

@@ -269,6 +269,9 @@ class WorldScreen(
         globalShortcuts.add(KeyboardBinding.EmpireOverviewResources) { openEmpireOverview(EmpireOverviewCategories.Resources) }
         globalShortcuts.add(KeyboardBinding.QuickSave) { QuickSave.save(gameInfo, this) }
         globalShortcuts.add(KeyboardBinding.QuickLoad) { QuickSave.load(this) }
+        globalShortcuts.add(KeyboardBinding.CultureMap) {
+            game.pushScreen(com.unciv.ui.screens.territoryscreen.CultureHeatmapScreen(selectedCiv))
+        }
         globalShortcuts.add(KeyboardBinding.ViewCapitalCity) {
             val capital = gameInfo.getCurrentPlayerCivilization().getCapital()
             if (capital != null && !mapHolder.setCenterPosition(capital.location.toHexCoord()))
