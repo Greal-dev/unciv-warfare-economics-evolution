@@ -54,6 +54,7 @@ object TileCultureLogic {
     private const val WONDER_AURA_RATE = 0.005f     // per wonder in city, per turn (capped)
     private const val WONDER_AURA_RADIUS = 4        // tiles around city projecting wonder aura
     private const val WONDER_AURA_CAP_PER_CITY = 3  // max wonders contributing per city
+    private const val UNIT_NEIGHBOR_AURA = 0.01f    // a military unit projects 1%/turn on adjacent tiles
 
     // Passive spread to unowned neighbors
     private const val PASSIVE_SPREAD = 0.02f
@@ -116,6 +117,18 @@ object TileCultureLogic {
             maxEra
         }
         return getCityCultureRadius(era) - 3
+    }
+
+    /** Adjacent military units project [UNIT_NEIGHBOR_AURA] per turn for their civ on
+     *  this tile. Stacks across multiple neighboring units (e.g. an army on the border
+     *  projects strongly into the adjacent enemy hinterland). Barbarian units project
+     *  for "Barbarians". */
+    private fun addUnitNeighborAura(tile: Tile, influences: HashMap<String, Float>) {
+        for (neighbor in tile.neighbors) {
+            val unit = neighbor.militaryUnit ?: continue
+            val civName = if (unit.civ.isBarbarian) "Barbarians" else unit.civ.civName
+            addInfluence(influences, civName, UNIT_NEIGHBOR_AURA)
+        }
     }
 
     /** Wonder soft-power aura: each city with built wonders projects extra culture for
@@ -460,6 +473,8 @@ object TileCultureLogic {
         if (addLongRangeCityInfluences(tile, influences)) hasNearbyCity = true
         // Wonder soft-power aura (distance 4)
         addWonderAura(tile, influences)
+        // Adjacent military units project +1%/turn each
+        addUnitNeighborAura(tile, influences)
         // Barbarian pressure if no city nearby (distance-based, shifted outward as civs mature)
         // Optimized: manual min instead of flatMap+filter+minOfOrNull
         if (!hasNearbyCity) {
@@ -640,6 +655,8 @@ object TileCultureLogic {
         if (addLongRangeCityInfluences(tile, influences)) hasNearbyCity = true
         // Wonder soft-power aura (distance 4)
         addWonderAura(tile, influences)
+        // Adjacent military units project +1%/turn each
+        addUnitNeighborAura(tile, influences)
         if (!hasNearbyCity) {
             val closestCityDist = tile.tileMap.gameInfo.civilizations
                 .filter { it.isAlive() && !it.isBarbarian }
