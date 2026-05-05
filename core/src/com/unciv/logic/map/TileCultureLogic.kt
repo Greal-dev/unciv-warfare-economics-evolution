@@ -49,7 +49,6 @@ object TileCultureLogic {
     private const val BARBARIAN_JUNGLE = 0.01f      // extra barbarian pressure on jungle
     private const val GARRISON_PACIFICATION = 0.10f // garrison converts 10% of foreign culture per turn
     private const val DIFFUSION_RATE = 0.02f        // per neighbor, proportional to neighbor's composition
-    private const val IMPROVEMENT_BONUS = 0.02f     // per non-pillaged improvement on tile
     private const val ROAD_CITY_BONUS = 0.01f       // per nearby city on a tile with road
     private const val WONDER_AURA_RATE = 0.005f     // per wonder in city, per turn (capped)
     private const val WONDER_AURA_RADIUS = 4        // tiles around city projecting wonder aura
@@ -475,9 +474,13 @@ object TileCultureLogic {
         addWonderAura(tile, influences)
         // Adjacent military units project +1%/turn each
         addUnitNeighborAura(tile, influences)
-        // Barbarian pressure if no city nearby (distance-based, shifted outward as civs mature)
+        // Barbarian pressure if no city nearby (distance-based, shifted outward as civs mature).
+        // A non-pillaged improvement on the tile NEUTRALIZES this distance-based pressure
+        // (an exploited tile is integrated into the economic/cultural fabric, not a no-man's-land).
+        // Terrain-based pressure (desert, tundra, jungle) below is NOT affected.
         // Optimized: manual min instead of flatMap+filter+minOfOrNull
-        if (!hasNearbyCity) {
+        val hasImprovementProtection = tile.improvement != null && !tile.improvementIsPillaged
+        if (!hasNearbyCity && !hasImprovementProtection) {
             var closestCityDist = Int.MAX_VALUE
             for (civ in tile.tileMap.gameInfo.civilizations) {
                 if (!civ.isAlive() || civ.isBarbarian) continue
@@ -580,12 +583,7 @@ object TileCultureLogic {
             }
         }
 
-        // 4. Non-pillaged improvement boosts owner's culture
-        if (tile.improvement != null && !tile.improvementIsPillaged) {
-            addInfluence(influences, ownerName, IMPROVEMENT_BONUS)
-        }
-
-        // 5. Road bonus: 2 closest cities exert extra influence if tile has unpillaged road
+        // 4. Road bonus: 2 closest cities exert extra influence if tile has unpillaged road
         // Optimized: manual 2-min scan instead of sort
         if (tile.getUnpillagedRoad() != RoadStatus.None) {
             var best1: com.unciv.logic.city.City? = null; var dist1 = Int.MAX_VALUE
