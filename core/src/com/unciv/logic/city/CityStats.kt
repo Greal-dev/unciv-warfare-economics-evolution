@@ -716,12 +716,14 @@ class CityStats(val city: City) {
         }
 
         // TW: Gold-to-Science: slider % gives science bonus AND costs gold proportionally.
-        // e.g. 100% slider → +100% science (×2) AND -100% gold. 50% slider → +50% science, -50% gold.
+        // 100% slider → +300% science (×4) AND -100% gold.
+        // 50% slider  → +150% science (×2.5) AND -50% gold.
+        // 25% slider  → +75% science (×1.75) AND -25% gold.
         val goldToSciencePercent = if (city.getRuleset().modOptions.hasUnique(UniqueType.ConvertGoldToScience))
             city.civ.tech.goldPercentConvertedToScience else 0f
 
         for (entry in newFinalStatList.values) {
-            entry.science *= (statPercentBonusesSum.science + goldToSciencePercent * 100f).toPercent()
+            entry.science *= (statPercentBonusesSum.science + goldToSciencePercent * 300f).toPercent()
         }
 
         if (goldToSciencePercent > 0f) {
