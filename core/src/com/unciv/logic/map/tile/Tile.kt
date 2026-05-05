@@ -90,6 +90,9 @@ class Tile : IsPartOfGameInfoSerialization {
 
     var history: TileHistory = TileHistory()
 
+    /** TW: Combat damage to improvements. Each entry = turns remaining for one -10% stack. Max 3 stacks. */
+    var combatDamageStacks: ArrayList<Int> = ArrayList(0)
+
     // Territorial Warfare: tile culture system
     /** Cultural composition: civName -> percentage (0.0–1.0). Sum should be ~1.0. */
     var cultureMap: HashMap<String, Float> = hashMapOf()
@@ -249,6 +252,7 @@ class Tile : IsPartOfGameInfoSerialization {
         toReturn.hasBottomRightRiver = hasBottomRightRiver
         toReturn.hasBottomRiver = hasBottomRiver
         toReturn.continent = continent
+        toReturn.combatDamageStacks = ArrayList(combatDamageStacks)
         toReturn.exploredBy = exploredBy
         toReturn.history = history.clone()
         // Territorial Warfare: culture system fields
@@ -615,6 +619,10 @@ class Tile : IsPartOfGameInfoSerialization {
         if (naturalWonder != null) bonus += getNaturalWonder().defenceBonus
         val tileImprovement = getUnpillagedTileImprovement()
         if (tileImprovement != null && includeImprovementBonus) {
+            // Territorial Warfare: every non-pillaged improvement provides a +10% baseline
+            // defensive bonus to any unit stationed on it (on top of unique-driven bonuses
+            // such as Fort or Citadel).
+            bonus += 0.10f
             for (unique in tileImprovement.getMatchingUniques(UniqueType.DefensiveBonus, unit?.cache?.state ?: stateThisTile))
                 bonus += unique.params[0].toFloat() / 100
         }
