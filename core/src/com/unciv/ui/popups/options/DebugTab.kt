@@ -105,15 +105,33 @@ internal class DebugTab(
     }
 
     private fun GameInfo.forceWorldPeace() {
+        val truceTurns = 10
         val majorCivs = civilizations.filter { !it.isBarbarian && !it.isSpectator() }
         for (i in majorCivs.indices) {
             val civA = majorCivs[i]
             for (j in i + 1 until majorCivs.size) {
                 val civB = majorCivs[j]
                 val diplo = civA.getDiplomacyManager(civB) ?: continue
-                if (diplo.diplomaticStatus == com.unciv.logic.civilization.diplomacy.DiplomaticStatus.War) {
-                    diplo.makePeace()
-                }
+                if (diplo.diplomaticStatus != com.unciv.logic.civilization.diplomacy.DiplomaticStatus.War) continue
+                diplo.makePeace()
+                // Lock both sides into a 10-turn truce so AI can't redeclare immediately.
+                val tradeLogic = com.unciv.logic.trade.TradeLogic(civA, civB)
+                tradeLogic.currentTrade.ourOffers.add(
+                    com.unciv.logic.trade.TradeOffer(
+                        com.unciv.Constants.peaceTreaty,
+                        com.unciv.logic.trade.TradeOfferType.Treaty,
+                        duration = truceTurns
+                    )
+                )
+                tradeLogic.currentTrade.theirOffers.add(
+                    com.unciv.logic.trade.TradeOffer(
+                        com.unciv.Constants.peaceTreaty,
+                        com.unciv.logic.trade.TradeOfferType.Treaty,
+                        duration = truceTurns
+                    )
+                )
+                diplo.trades.add(tradeLogic.currentTrade)
+                diplo.otherCivDiplomacy().trades.add(tradeLogic.currentTrade.reverse())
             }
         }
         GUI.setUpdateWorldOnNextRender()
