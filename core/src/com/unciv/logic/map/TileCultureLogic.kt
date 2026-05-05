@@ -55,6 +55,11 @@ object TileCultureLogic {
     private const val WONDER_AURA_CAP_PER_CITY = 3  // max wonders contributing per city
     private const val UNIT_NEIGHBOR_AURA = 0.01f    // a military unit projects 1%/turn on adjacent tiles
 
+    // TW: Russia trait — wider cultural reach and stronger projection per distance band
+    private const val RUSSIA_CIV = "Russia"
+    private const val RUSSIA_RADIUS_BONUS = 1        // Russian cities reach +1 tile further than peers (per era band)
+    private const val RUSSIA_DISTANCE_BONUS = 0.01f  // Russian cities project an extra +1%/turn for their civ at every reached distance
+
     // Passive spread to unowned neighbors
     private const val PASSIVE_SPREAD = 0.02f
     private const val CAPITAL_ADJ_BONUS = 0.05f       // original capital bonus on adjacent tiles
@@ -95,10 +100,18 @@ object TileCultureLogic {
         else -> 3
     }
 
+    /** TW: Effective culture-projection radius for a given city. Russian cities reach
+     *  one tile further than peers at the same era. */
+    @Readonly
+    fun getCityCultureRadius(city: com.unciv.logic.city.City): Int {
+        val base = getCityCultureRadius(city.civ.getEraNumber())
+        return if (city.civ.civName == RUSSIA_CIV) base + RUSSIA_RADIUS_BONUS else base
+    }
+
     /** Bonus added to barbarian-pressure distance thresholds based on the most
      *  advanced era in play (or the tile owner's era if any). */
     @Readonly
-    private fun getBarbarianRadiusBonus(tile: Tile): Int {
+    private fun getBarbarianRadiusBonus(tile: Tile, closestCityCivName: String? = null): Int {
         val ownerCiv = tile.getOwner()
         val era = ownerCiv?.getEraNumber() ?: run {
             var maxEra = 1
@@ -109,7 +122,11 @@ object TileCultureLogic {
             }
             maxEra
         }
-        return getCityCultureRadius(era) - 3
+        // TW: Russia pushes its barbarian-pressure threshold one tile further than peers,
+        // either through tile ownership or through being the closest city to an unowned tile.
+        val russiaBonus = if (ownerCiv?.civName == RUSSIA_CIV
+            || closestCityCivName == RUSSIA_CIV) RUSSIA_RADIUS_BONUS else 0
+        return getCityCultureRadius(era) - 3 + russiaBonus
     }
 
     /** Adjacent military units project [UNIT_NEIGHBOR_AURA] per turn for their civ on
@@ -146,17 +163,22 @@ object TileCultureLogic {
      *  Distance 1 and 2 are handled separately upstream (they keep mountain blocking). */
     private fun addLongRangeCityInfluences(tile: Tile, influences: HashMap<String, Float>): Boolean {
         var found = false
-        for (distance in 3..5) {
+        // Loop up to 6 to allow Russia (radius +1) to reach distance 6 in late eras.
+        for (distance in 3..6) {
             val rate = when (distance) {
                 3 -> CITY_INFLUENCE_FAR3
                 4 -> CITY_INFLUENCE_FAR4
-                else -> CITY_INFLUENCE_FAR5
+                else -> CITY_INFLUENCE_FAR5  // distances 5 and 6 share the same baseline rate
             }
             for (otherTile in tile.getTilesAtDistance(distance)) {
                 if (!otherTile.isCityCenter()) continue
                 val otherCity = otherTile.getCity() ?: continue
-                if (distance > getCityCultureRadius(otherCity.civ.getEraNumber())) continue
+                if (distance > getCityCultureRadius(otherCity)) continue
                 addCityInfluence(influences, otherTile, rate)
+                // TW: Russia projects an extra +1%/turn for its civ at every reached distance.
+                if (otherCity.civ.civName == RUSSIA_CIV) {
+                    addInfluence(influences, RUSSIA_CIV, RUSSIA_DISTANCE_BONUS)
+                }
                 found = true
             }
         }
@@ -451,11 +473,15 @@ object TileCultureLogic {
             if (neighbor.isCityCenter()) {
                 addCityInfluence(influences, neighbor, CITY_INFLUENCE_ADJ)
                 hasNearbyCity = true
-                // Original capital bonus: +5% owner culture on adjacent tiles
                 val neighborCity = neighbor.getCity()
+                // Original capital bonus: +5% owner culture on adjacent tiles
                 if (neighborCity != null && neighborCity.isOriginalCapital
                     && neighborCity.foundingCivObject == neighborCity.civ) {
                     addInfluence(influences, neighborCity.civ.civName, CAPITAL_ADJ_BONUS)
+                }
+                // TW: Russia projects +1%/turn extra for its civ at every reached distance.
+                if (neighborCity != null && neighborCity.civ.civName == RUSSIA_CIV) {
+                    addInfluence(influences, RUSSIA_CIV, RUSSIA_DISTANCE_BONUS)
                 }
             }
             // Check distance-2 cities (neighbors of neighbors)
@@ -465,6 +491,10 @@ object TileCultureLogic {
                 if (nn.isCityCenter()) {
                     addCityInfluence(influences, nn, CITY_INFLUENCE_NEAR)
                     hasNearbyCity = true
+                    val nnCity = nn.getCity()
+                    if (nnCity != null && nnCity.civ.civName == RUSSIA_CIV) {
+                        addInfluence(influences, RUSSIA_CIV, RUSSIA_DISTANCE_BONUS)
+                    }
                 }
             }
         }
@@ -482,16 +512,20 @@ object TileCultureLogic {
         val hasImprovementProtection = tile.improvement != null && !tile.improvementIsPillaged
         if (!hasNearbyCity && !hasImprovementProtection) {
             var closestCityDist = Int.MAX_VALUE
+            var closestCityCivName: String? = null
             for (civ in tile.tileMap.gameInfo.civilizations) {
                 if (!civ.isAlive() || civ.isBarbarian) continue
                 for (city in civ.cities) {
                     val d = city.getCenterTile().aerialDistanceTo(tile)
-                    if (d < closestCityDist) closestCityDist = d
+                    if (d < closestCityDist) {
+                        closestCityDist = d
+                        closestCityCivName = civ.civName
+                    }
                     if (d <= 2) break // can't be closer than nearby city check already found
                 }
                 if (closestCityDist <= 2) break
             }
-            val radiusBonus = getBarbarianRadiusBonus(tile)
+            val radiusBonus = getBarbarianRadiusBonus(tile, closestCityCivName)
             if (closestCityDist >= 6 + radiusBonus) {
                 addInfluence(influences, "Barbarians", BARBARIAN_NO_CITY_6)
             } else if (closestCityDist >= 5 + radiusBonus) {
@@ -632,11 +666,15 @@ object TileCultureLogic {
             if (neighbor.isCityCenter()) {
                 addCityInfluence(influences, neighbor, CITY_INFLUENCE_ADJ)
                 hasNearbyCity = true
-                // Original capital bonus: +5% owner culture on adjacent tiles
                 val neighborCity = neighbor.getCity()
+                // Original capital bonus: +5% owner culture on adjacent tiles
                 if (neighborCity != null && neighborCity.isOriginalCapital
                     && neighborCity.foundingCivObject == neighborCity.civ) {
                     addInfluence(influences, neighborCity.civ.civName, CAPITAL_ADJ_BONUS)
+                }
+                // TW: Russia projects +1%/turn extra for its civ at every reached distance.
+                if (neighborCity != null && neighborCity.civ.civName == RUSSIA_CIV) {
+                    addInfluence(influences, RUSSIA_CIV, RUSSIA_DISTANCE_BONUS)
                 }
             }
             // Mountains block distance-2 city influence path
@@ -645,6 +683,10 @@ object TileCultureLogic {
                 if (nn.isCityCenter()) {
                     addCityInfluence(influences, nn, CITY_INFLUENCE_NEAR)
                     hasNearbyCity = true
+                    val nnCity = nn.getCity()
+                    if (nnCity != null && nnCity.civ.civName == RUSSIA_CIV) {
+                        addInfluence(influences, RUSSIA_CIV, RUSSIA_DISTANCE_BONUS)
+                    }
                 }
             }
         }
@@ -655,12 +697,19 @@ object TileCultureLogic {
         // Adjacent military units project +1%/turn each
         addUnitNeighborAura(tile, influences)
         if (!hasNearbyCity) {
-            val closestCityDist = tile.tileMap.gameInfo.civilizations
-                .filter { it.isAlive() && !it.isBarbarian }
-                .flatMap { it.cities }
-                .minOfOrNull { it.getCenterTile().aerialDistanceTo(tile) }
-                ?: Int.MAX_VALUE
-            val radiusBonus = getBarbarianRadiusBonus(tile)
+            var closestCityDist = Int.MAX_VALUE
+            var closestCityCivName: String? = null
+            for (civ in tile.tileMap.gameInfo.civilizations) {
+                if (!civ.isAlive() || civ.isBarbarian) continue
+                for (city in civ.cities) {
+                    val d = city.getCenterTile().aerialDistanceTo(tile)
+                    if (d < closestCityDist) {
+                        closestCityDist = d
+                        closestCityCivName = civ.civName
+                    }
+                }
+            }
+            val radiusBonus = getBarbarianRadiusBonus(tile, closestCityCivName)
             if (closestCityDist >= 6 + radiusBonus) {
                 addInfluence(influences, "Barbarians", BARBARIAN_NO_CITY_6)
             } else if (closestCityDist >= 5 + radiusBonus) {
