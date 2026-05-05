@@ -74,6 +74,10 @@ internal class DebugTab(
             val giveResourcesButton = "Get all strategic resources".toTextButton()
             giveResourcesButton.onClick { curGameInfo.giveResources() }
             add(giveResourcesButton).colspan(2).row()
+
+            val forcePeaceButton = "Force world peace".toTextButton()
+            forcePeaceButton.onClick { curGameInfo.forceWorldPeace() }
+            add(forcePeaceButton).colspan(2).row()
         }
 
         val loadAsHotseatFromClipboardButton = "Load online multiplayer game as hotseat from clipboard".toTextButton()
@@ -97,6 +101,21 @@ internal class DebugTab(
             }
         }
         getCurrentPlayerCivilization().cache.updateSightAndResources()
+        GUI.setUpdateWorldOnNextRender()
+    }
+
+    private fun GameInfo.forceWorldPeace() {
+        val majorCivs = civilizations.filter { !it.isBarbarian && !it.isSpectator() }
+        for (i in majorCivs.indices) {
+            val civA = majorCivs[i]
+            for (j in i + 1 until majorCivs.size) {
+                val civB = majorCivs[j]
+                val diplo = civA.getDiplomacyManager(civB) ?: continue
+                if (diplo.diplomaticStatus == com.unciv.logic.civilization.diplomacy.DiplomaticStatus.War) {
+                    diplo.makePeace()
+                }
+            }
+        }
         GUI.setUpdateWorldOnNextRender()
     }
 
