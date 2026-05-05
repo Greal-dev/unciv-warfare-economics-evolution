@@ -45,8 +45,8 @@ object TileCultureLogic {
     private const val BARBARIAN_NO_CITY_5 = 0.02f   // barbarian growth if no city within (5 + radiusBonus) tiles
     private const val BARBARIAN_NO_CITY_6 = 0.03f   // barbarian growth if no city within (6 + radiusBonus)+ tiles
     private const val BARBARIAN_DESERT = 0.01f      // extra barbarian pressure on desert
-    private const val BARBARIAN_TUNDRA = 0.01f      // extra barbarian pressure on tundra/snow
     private const val BARBARIAN_JUNGLE = 0.01f      // extra barbarian pressure on jungle
+    private const val RIVER_DIFFUSION_FACTOR = 0.5f // cultural diffusion crossing a river is halved (unless bridged by road)
     private const val GARRISON_PACIFICATION = 0.10f // garrison converts 10% of foreign culture per turn
     private const val DIFFUSION_RATE = 0.02f        // per neighbor, proportional to neighbor's composition
     private const val ROAD_CITY_BONUS = 0.01f       // per nearby city on a tile with road
@@ -66,7 +66,7 @@ object TileCultureLogic {
         Pair(2100, 20)    // 2100 AD — Late modern collapse, 20 turns
     )
     private const val CRISIS_BARBARIAN_ALL = 0.05f    // +5% barbarian pressure on ALL tiles during crisis
-    private const val CRISIS_BARBARIAN_BORDER = 0.07f // +7% barbarian pressure on border tiles during crisis
+    private const val CRISIS_BARBARIAN_BORDER = 0.05f // +5% barbarian pressure on border tiles during crisis
     private const val CRISIS_CONQUERED_BARBARIAN = 0.02f  // +2% barbarian per conquered city nearby during crisis
     private const val CRISIS_CONQUERED_RADIUS = 3         // radius around conquered cities for localized pressure
     private const val CRISIS_CITY_CAPITAL_PRESSURE = 0.10f // founding civ pressure on conquered original capitals
@@ -79,12 +79,6 @@ object TileCultureLogic {
     private const val CITY_FOUNDING_OWNER_SHARE = 0.90f   // newly founded city = 90% founder
 
     // Colonial era: REMOVED — no longer suppresses rebellions/secessions
-
-    // Decolonization: Modern era (5+), overseas cities 15+ tiles from capital
-    private const val DECOLONIZATION_ERA = 5         // Modern era
-    private const val DECOLONIZATION_DISTANCE = 15   // min aerial distance from capital
-    private const val DECOLONIZATION_CITY_PRESSURE = 0.10f  // +10% barbarian on city center
-    private const val DECOLONIZATION_TILE_PRESSURE = 0.05f  // +5% barbarian on all tiles
 
 
     /** Cultural radius of cities grows with the projecting civ's era:
@@ -194,6 +188,16 @@ object TileCultureLogic {
         return false
     }
 
+    /** TW: Cultural diffusion is halved when crossing a river, unless a road bridges both sides. */
+    @Readonly
+    private fun riverDiffusionFactor(source: Tile, target: Tile): Float {
+        if (!source.isConnectedByRiver(target)) return 1f
+        val sourceRoad = source.getUnpillagedRoad() != com.unciv.logic.map.tile.RoadStatus.None
+        val targetRoad = target.getUnpillagedRoad() != com.unciv.logic.map.tile.RoadStatus.None
+        if (sourceRoad && targetRoad) return 1f
+        return RIVER_DIFFUSION_FACTOR
+    }
+
     /** TW: Check if a city is a conquered enemy capital (behaves culturally like a puppet). */
     @Readonly
     private fun isConqueredCapital(city: com.unciv.logic.city.City): Boolean =
@@ -281,11 +285,7 @@ object TileCultureLogic {
             }
         }
 
-        // TW: Decolonization pressure on overseas colonies (Modern+ era)
-        // Optimization: run BFS only every 5 turns, multiply pressure by 5
-        if (gameInfo.turns % 5 == 0) processDecolonization(civ, 5f)
-
-        // TW: For connected non-puppet cities, gradually convert local culture → national culture
+// TW: For connected non-puppet cities, gradually convert local culture → national culture
         // 5% of local culture converts to national each turn
         // Puppet cities do NOT convert — they retain their local identity
         for (city in civ.cities.toList()) {
@@ -505,9 +505,6 @@ object TileCultureLogic {
         if (tile.baseTerrain == "Desert" || tile.baseTerrain == "Flood plains") {
             addInfluence(influences, "Barbarians", BARBARIAN_DESERT)
         }
-        if (tile.baseTerrain == "Tundra" || tile.baseTerrain == "Snow") {
-            addInfluence(influences, "Barbarians", BARBARIAN_TUNDRA)
-        }
         if (tile.terrainFeatures.contains("Jungle")) {
             addInfluence(influences, "Barbarians", BARBARIAN_JUNGLE)
         }
@@ -602,12 +599,14 @@ object TileCultureLogic {
 
         // 6. Tile-to-tile diffusion: only from OWNED tiles (unowned wilderness doesn't project)
         //    Mountains block all projection. Coasts block projection to land but not to other water.
+        //    Rivers halve diffusion unless a road bridges both sides.
         for (neighbor in tile.neighbors) {
             if (neighbor.cultureMap.isEmpty()) continue
             if (neighbor.getOwner() == null) continue  // unowned tiles don't diffuse
             if (isCulturalBarrier(neighbor, tile)) continue  // check source→target barrier
+            val riverFactor = riverDiffusionFactor(neighbor, tile)
             for ((civName, share) in neighbor.cultureMap) {
-                addInfluence(influences, civName, share * DIFFUSION_RATE)
+                addInfluence(influences, civName, share * DIFFUSION_RATE * riverFactor)
             }
         }
 
@@ -675,9 +674,6 @@ object TileCultureLogic {
         if (tile.baseTerrain == "Desert" || tile.baseTerrain == "Flood plains") {
             addInfluence(influences, "Barbarians", BARBARIAN_DESERT)
         }
-        if (tile.baseTerrain == "Tundra" || tile.baseTerrain == "Snow") {
-            addInfluence(influences, "Barbarians", BARBARIAN_TUNDRA)
-        }
         if (tile.terrainFeatures.contains("Jungle")) {
             addInfluence(influences, "Barbarians", BARBARIAN_JUNGLE)
         }
@@ -689,12 +685,14 @@ object TileCultureLogic {
 
         // Tile diffusion: only from OWNED tiles (unowned wilderness doesn't project)
         //    Mountains block all projection. Coasts block projection to land but not to other water.
+        //    Rivers halve diffusion unless a road bridges both sides.
         for (neighbor in tile.neighbors) {
             if (neighbor.cultureMap.isEmpty()) continue
             if (neighbor.getOwner() == null) continue
             if (isCulturalBarrier(neighbor, tile)) continue  // check source→target barrier
+            val riverFactor = riverDiffusionFactor(neighbor, tile)
             for ((civName, share) in neighbor.cultureMap) {
-                addInfluence(influences, civName, share * PASSIVE_SPREAD)
+                addInfluence(influences, civName, share * PASSIVE_SPREAD * riverFactor)
             }
         }
 
@@ -1004,77 +1002,6 @@ object TileCultureLogic {
             NotificationIcon.Culture
         )
     }
-
-    /** TW: Decolonization — overseas colonies far from capital receive barbarian pressure
-     *  starting from Modern era. Cities must be 15+ tiles from capital AND not connected by land.
-     *  +10% barbarian on city center, +5% on all city tiles per turn. */
-    fun processDecolonization(civ: Civilization, pressureMultiplier: Float = 1f) {
-        val eraNumber = civ.getEraNumber()
-        if (eraNumber < DECOLONIZATION_ERA) {
-            decolonizationLandCache = null
-            return
-        }
-
-        val capital = civ.getCapital() ?: return
-        val capitalTile = capital.getCenterTile()
-
-        // BFS to find all land tiles reachable from capital
-        val landConnected = HashSet<HexCoord>()
-        val queue = ArrayDeque<Tile>()
-        queue.add(capitalTile)
-        landConnected.add(capitalTile.position)
-        while (queue.isNotEmpty()) {
-            val current = queue.removeFirst()
-            for (neighbor in current.neighbors) {
-                if (neighbor.position !in landConnected && neighbor.isLand) {
-                    landConnected.add(neighbor.position)
-                    queue.add(neighbor)
-                }
-            }
-        }
-
-        // Cache for use in updateGraceAndRebellion
-        decolonizationLandCache = civ.civName to landConnected
-
-        for (city in civ.cities.toList()) {
-            if (city == capital) continue
-            val cityTile = city.getCenterTile()
-            val distance = cityTile.aerialDistanceTo(capitalTile)
-            if (distance < DECOLONIZATION_DISTANCE) continue
-            if (cityTile.position in landConnected) continue // connected by land = not overseas
-
-            // This city qualifies for decolonization pressure
-            // +10% barbarian on city center (scaled by pressureMultiplier)
-            cityTile.cultureMap["Barbarians"] = (cityTile.cultureMap["Barbarians"] ?: 0f) + DECOLONIZATION_CITY_PRESSURE * pressureMultiplier
-            normalizeAll(cityTile.cultureMap)
-
-            // +5% barbarian on all city tiles
-            for (tile in city.getTiles()) {
-                if (tile == cityTile) continue
-                if (isExcludedFromCulture(tile)) continue
-                tile.cultureMap["Barbarians"] = (tile.cultureMap["Barbarians"] ?: 0f) + DECOLONIZATION_TILE_PRESSURE * pressureMultiplier
-                normalizeAll(tile.cultureMap)
-            }
-        }
-    }
-
-    /** Fast check if a city tile is eligible for decolonization.
-     *  Uses cached land-connectivity set computed once per civ per turn in processDecolonization.
-     *  Fallback: checks distance only (BFS is done in processDecolonization). */
-    @Readonly
-    private fun isDecolonizationEligibleFast(tile: Tile, civ: Civilization): Boolean {
-        val capital = civ.getCapital() ?: return false
-        val capitalTile = capital.getCenterTile()
-        if (tile.aerialDistanceTo(capitalTile) < DECOLONIZATION_DISTANCE) return false
-        // Use the cached set if available, otherwise just check distance (conservative)
-        val cached = decolonizationLandCache
-        return if (cached != null && cached.first == civ.civName)
-            tile.position !in cached.second
-        else true // distance qualifies, assume overseas if no cache
-    }
-
-    // Per-turn cache: (civName, set of land-connected positions from capital)
-    private var decolonizationLandCache: Pair<String, HashSet<HexCoord>>? = null
 
     /**
      * Returns the owner's culture share for yield calculation.
