@@ -392,6 +392,15 @@ object Battle {
         var potentialDamageToDefender = BattleDamage.calculateDamageToDefender(attacker, defender)
         var potentialDamageToAttacker = BattleDamage.calculateDamageToAttacker(attacker, defender)
 
+        // TW: Conquering a tile where the attacker's culture is dominant (≥70% share)
+        // costs at most 5 HP to the attacker — local sympathy lowers resistance.
+        if (attacker.isMelee() && attacker is MapUnitCombatant) {
+            val targetTile = defender.getTile()
+            val attackerShare = com.unciv.logic.map.TileCultureLogic.getFriendlyShare(targetTile, attacker.getCivInfo())
+            if (attackerShare >= 0.70f && potentialDamageToAttacker > 5)
+                potentialDamageToAttacker = 5
+        }
+
         val attackerHealthBefore = attacker.getHealth()
         val defenderHealthBefore = defender.getHealth()
 
