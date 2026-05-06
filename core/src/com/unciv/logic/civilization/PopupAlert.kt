@@ -33,7 +33,8 @@ enum class AlertType : IsPartOfGameInfoSerialization {
     GameHasBeenWon,
     Event,
     VassalIndependenceRequest,
-    TerritoryTradeOffer
+    TerritoryTradeOffer,
+    JoinCoalitionRequest
 }
 
 class PopupAlert : IsPartOfGameInfoSerialization {

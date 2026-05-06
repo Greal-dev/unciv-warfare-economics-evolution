@@ -124,6 +124,8 @@ class AlertPopup(
             AlertType.VassalIndependenceRequest -> shouldOpen = addVassalIndependenceRequest()
             // TW: Territory trade offer received from another civ
             AlertType.TerritoryTradeOffer -> shouldOpen = addTerritoryTradeOffer()
+            // TW: Coalition invitation received from another civ
+            AlertType.JoinCoalitionRequest -> shouldOpen = addCoalitionInvitation()
         }
         if (shouldOpen) open()
         else viewingCiv.popupAlerts.remove(popupAlert)
@@ -703,6 +705,33 @@ class AlertPopup(
                 val diplo = viewingCiv.getDiplomacyManager(proposer)
                 if (diplo?.canDeclareWar() == true) diplo.declareWar()
             }
+        }
+        return true
+    }
+
+    private fun addCoalitionInvitation(): Boolean {
+        val decoded = com.unciv.logic.diplomacy.coalition.CoalitionPayload.decode(popupAlert.value) ?: return false
+        if (decoded.inviteeName != viewingCiv.civName) return false
+        val proposal = gameInfo.coalitionProposals.firstOrNull { it.id == decoded.proposalId } ?: return false
+        val leader = gameInfo.getCivilizationOrNull(proposal.leaderCivName) ?: return false
+        val target = gameInfo.getCivilizationOrNull(proposal.targetCivName) ?: return false
+        val bribe = proposal.bribesByInvitee[viewingCiv.civName] ?: 0
+
+        addLeaderName(leader)
+        addGoodSizedLabel("[${leader.civName}] proposes a coalition against [${target.civName}]").row()
+        val summary = buildString {
+            append("Members invited: ${proposal.inviteeCivNames.size}\n")
+            if (bribe > 0) append("They offer ${bribe} gold for your participation\n")
+            append("\nYou will declare war on [${target.civName}] when the coalition forms.")
+            append("\nYou may sign a separate peace at any time.")
+        }
+        addGoodSizedLabel(summary).row()
+
+        addCloseButton("Accept") {
+            com.unciv.logic.diplomacy.coalition.CoalitionManager.recordResponse(gameInfo, proposal, viewingCiv.civName, accepted = true)
+        }
+        addCloseButton("Refuse") {
+            com.unciv.logic.diplomacy.coalition.CoalitionManager.recordResponse(gameInfo, proposal, viewingCiv.civName, accepted = false)
         }
         return true
     }

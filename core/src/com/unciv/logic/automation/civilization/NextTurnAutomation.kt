@@ -63,6 +63,8 @@ object NextTurnAutomation {
             DiplomacyAutomation.offerDefensivePact(civInfo)
             TradeAutomation.exchangeLuxuries(civInfo)
             com.unciv.logic.diplomacy.territory.TerritoryTradeAI.proposeTradesIfDue(civInfo)
+            com.unciv.logic.diplomacy.coalition.CoalitionManager.evaluateForAi(civInfo)
+            com.unciv.logic.diplomacy.coalition.CoalitionManager.processProposals(civInfo.gameInfo)
 
             issueRequests(civInfo)
             adoptPolicy(civInfo)  // todo can take a second - why?
