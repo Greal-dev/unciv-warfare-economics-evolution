@@ -78,6 +78,10 @@ internal class DebugTab(
             val forcePeaceButton = "Force world peace".toTextButton()
             forcePeaceButton.onClick { curGameInfo.forceWorldPeace() }
             add(forcePeaceButton).colspan(2).row()
+
+            val banNukesButton = "Ban all nuclear weapons".toTextButton()
+            banNukesButton.onClick { curGameInfo.banAllNuclearWeapons() }
+            add(banNukesButton).colspan(2).row()
         }
 
         val loadAsHotseatFromClipboardButton = "Load online multiplayer game as hotseat from clipboard".toTextButton()
@@ -134,6 +138,24 @@ internal class DebugTab(
                 diplo.otherCivDiplomacy().trades.add(tradeLogic.currentTrade.reverse())
             }
         }
+        GUI.setUpdateWorldOnNextRender()
+    }
+
+    private fun GameInfo.banAllNuclearWeapons() {
+        gameParameters.nuclearWeaponsEnabled = false
+        var destroyed = 0
+        for (civ in civilizations) {
+            for (unit in civ.units.getCivUnits().toList()) {
+                if (unit.isNuclearWeapon()) {
+                    unit.destroy()
+                    destroyed++
+                }
+            }
+        }
+        getCurrentPlayerCivilization().addNotification(
+            "Nuclear weapons are banned. [$destroyed] existing units destroyed.",
+            com.unciv.logic.civilization.NotificationCategory.General
+        )
         GUI.setUpdateWorldOnNextRender()
     }
 
