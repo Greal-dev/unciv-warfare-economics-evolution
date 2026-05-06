@@ -124,6 +124,16 @@ class MajorCivDiplomacyTable(private val diplomacyScreen: DiplomacyScreen) {
         diplomacyTable.add(demandsButton).row()
         if (diplomacyScreen.isNotPlayersTurn()) demandsButton.disable()
 
+        // TW: open the coalition-formation screen (multilateral war planning)
+        val coalitionButton = "Form coalition...".toTextButton()
+        coalitionButton.onClick {
+            UncivGame.Current.pushScreen(
+                com.unciv.ui.screens.coalitionscreen.CoalitionScreen(viewingCiv)
+            )
+        }
+        if (diplomacyScreen.isNotPlayersTurn()) coalitionButton.disable()
+        diplomacyTable.add(coalitionButton).row()
+
         if (otherCiv.getCapital() != null && viewingCiv.hasExplored(otherCiv.getCapital()!!.getCenterTile()))
             diplomacyTable.add(diplomacyScreen.getGoToOnMapButton(otherCiv)).row()
 

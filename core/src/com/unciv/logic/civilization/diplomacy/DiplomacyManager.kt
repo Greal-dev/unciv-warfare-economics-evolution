@@ -143,7 +143,8 @@ enum class DiplomaticModifiers(val text: String) {
     GaveUsUnits("You gave us units!"),
     GaveUsGifts("We appreciate your gifts"),
     ReturnedCapturedUnits("You returned captured units to us"),
-    BelieveSameReligion("We believe in the same religion");
+    BelieveSameReligion("We believe in the same religion"),
+    RefusedToJoinWarAgainstUs("You refused to join a coalition against us");
 
     companion object{
         @Immutable private val valuesAsMap = entries.associateBy { it.name }
@@ -636,6 +637,9 @@ class DiplomacyManager() : IsPartOfGameInfoSerialization {
                 vassal.getDiplomacyManager(civInfo)?.makePeace()
             }
         }
+
+        // TW: Coalition follow-up — separate-peace member is removed; leader peace dissolves the coalition.
+        com.unciv.logic.diplomacy.coalition.CoalitionManager.onPeaceMade(civInfo, otherCiv)
     }
 
     @Readonly fun hasFlag(flag: DiplomacyFlags) = flagsCountdown.containsKey(flag.name)

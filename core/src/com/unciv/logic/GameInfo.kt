@@ -123,6 +123,11 @@ class GameInfo : IsPartOfGameInfoSerialization, HasGameInfoSerializationVersion 
 
     /** Maps a civ to the civ they voted for - `null` on the value side means they abstained */
     var diplomaticVictoryVotesCast = HashMap<String, String?>()
+
+    // TW: coalition diplomacy — formed coalitions, in-flight proposals, and per-leader cooldowns.
+    var coalitions: ArrayList<com.unciv.logic.diplomacy.coalition.Coalition> = ArrayList()
+    var coalitionProposals: ArrayList<com.unciv.logic.diplomacy.coalition.CoalitionProposal> = ArrayList()
+    var coalitionLeaderCooldowns: HashMap<String, HashMap<String, Int>> = HashMap()
     // Set to false whenever the results still need te be processed
     var diplomaticVictoryVotesProcessed = false
 
