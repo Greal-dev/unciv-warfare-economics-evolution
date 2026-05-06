@@ -198,6 +198,12 @@ object BattleDamage {
                 }
             }
 
+            // TW: cultural sympathy on the target tile shifts attacker strength.
+            //   ≥ 70% attacker share → +30% attack ; ≤ 20% → -30%.
+            val targetTile = defender.getTile()
+            val attackerShare = com.unciv.logic.map.TileCultureLogic.getFriendlyShare(targetTile, attacker.getCivInfo())
+            if (attackerShare >= 0.70f) modifiers["Cultural sympathy"] = 30
+            else if (attackerShare <= 0.20f) modifiers["Hostile populace"] = -30
         }
 
         return modifiers
@@ -272,6 +278,12 @@ object BattleDamage {
 
             if (defender.unit.isFortified() || defender.unit.isGuarding())
                 modifiers["Fortification"] = BattleConstants.FORTIFICATION_BONUS * defender.unit.getFortificationTurns()
+
+            // TW: cultural sympathy on the defender's own tile shifts defense.
+            //   ≥ 70% defender share → +30% defense ; ≤ 20% → -30%.
+            val defenderShare = com.unciv.logic.map.TileCultureLogic.getFriendlyShare(tile, defender.getCivInfo())
+            if (defenderShare >= 0.70f) modifiers["Cultural sympathy"] = 30
+            else if (defenderShare <= 0.20f) modifiers["Hostile populace"] = -30
         }
 
         // Territorial Warfare: small nation defensive bonus (major civs only)
