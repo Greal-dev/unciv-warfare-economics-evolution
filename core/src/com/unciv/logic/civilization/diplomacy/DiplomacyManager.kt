@@ -215,6 +215,11 @@ class DiplomacyManager() : IsPartOfGameInfoSerialization {
      *  Maps target civName -> turn at which proposer can re-propose. */
     var territoryTradeCooldown = HashMap<String, Int>()
 
+    /** TW v2: what we are trying to obtain from this war, set once when we declare it.
+     *  Null on the defending side, and on every save made before war goals existed, which is
+     *  exactly why it is nullable: those saves load unchanged. Cleared when peace is made. */
+    var warGoal: WarGoal? = null
+
     /**
      * How quickly do we forget past relationships?
      * 
@@ -261,6 +266,8 @@ class DiplomacyManager() : IsPartOfGameInfoSerialization {
         toReturn.totalOfScienceDuringRA = totalOfScienceDuringRA
         toReturn.smoothedOpinionOfOtherCiv = smoothedOpinionOfOtherCiv
         toReturn.cachedSmoothedOpinionOfOtherCiv = cachedSmoothedOpinionOfOtherCiv
+        toReturn.territoryTradeCooldown.putAll(territoryTradeCooldown)
+        toReturn.warGoal = warGoal?.clone()
         return toReturn
     }
 
@@ -591,6 +598,8 @@ class DiplomacyManager() : IsPartOfGameInfoSerialization {
     /** Should only be called from makePeace */
     private fun makePeaceOneSide() {
         diplomaticStatus = DiplomaticStatus.Peace
+        // TW v2: the war is over, so is what it was fought for. A new war gets a new goal.
+        warGoal = null
         val otherCiv = otherCiv
         // Get out of others' territory
         for (unit in civInfo.units.getCivUnits().filter { it.getTile().getOwner() == otherCiv }.toList())

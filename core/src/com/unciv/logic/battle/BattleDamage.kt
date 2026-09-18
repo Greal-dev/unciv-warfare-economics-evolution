@@ -1,5 +1,6 @@
 package com.unciv.logic.battle
 
+import com.unciv.logic.civilization.Civilization
 import com.unciv.logic.map.tile.Tile
 import com.unciv.models.Counter
 import com.unciv.models.ruleset.GlobalUniques
@@ -83,7 +84,22 @@ object BattleDamage {
             // currently at war with this unit's civ, strength collapses to 25%. Water tiles never
             // count as encirclement (logistics can still flow by sea, landings stay possible),
             // and even a single friendly/neutral/non-belligerent neighbour breaks the lock.
-            if (isFullyEncircled(combatant)) modifiers["Encircled"] = -75
+            //
+            // TW v2 — Supply line: fighting far from your own cities costs strength, not only
+            // gold. Roads halve the effective distance, which is what makes a road network the
+            // real instrument of power projection rather than a convenience.
+            //
+            // Encirclement and a broken supply line are two readings of the same isolation, so
+            // they do NOT stack — cumulated they would push a unit past -100% and make it
+            // literally harmless. Only the harsher of the two applies.
+            val encircleMalus = if (isFullyEncircled(combatant)) -75 else 0
+            val supplyMalus =
+                if (civInfo.isBarbarian || combatant.unit.baseUnit.isWaterUnit) 0
+                else supplyLineMalus(civInfo, combatant.getTile())
+            when {
+                encircleMalus < 0 && encircleMalus <= supplyMalus -> modifiers["Encircled"] = encircleMalus
+                supplyMalus < 0 -> modifiers["Supply line"] = supplyMalus
+            }
 
         } else if (combatant is CityCombatant) {
             for (unique in combatant.city.getMatchingUniques(UniqueType.StrengthForCities, conditionalState)) {
@@ -97,6 +113,25 @@ object BattleDamage {
         }
 
         return modifiers
+    }
+
+    /** TW v2 — Strength malus for fighting away from your own logistics.
+     *
+     *  Reuses [CombatCostCalculator.computeDistanceFactor], which already expresses exactly the
+     *  right quantity: hexes to the nearest owned city, halved when the unit stands on a road.
+     *  So the same geography that makes a campaign expensive in gold also makes it weaker,
+     *  and a road built forward is worth twice the distance it covers.
+     *
+     *  Returns 0 (no malus) inside your own territory's reach, and for a civ with no cities. */
+    @Readonly
+    private fun supplyLineMalus(civInfo: Civilization, tile: Tile): Int {
+        val effectiveDistance = CombatCostCalculator.computeDistanceFactor(civInfo, tile)
+        return when {
+            effectiveDistance <= 4f -> 0
+            effectiveDistance <= 7f -> -10
+            effectiveDistance <= 11f -> -25
+            else -> -40
+        }
     }
 
     /** TW v2 — Returns true if the unit's combat strength should collapse from encirclement.

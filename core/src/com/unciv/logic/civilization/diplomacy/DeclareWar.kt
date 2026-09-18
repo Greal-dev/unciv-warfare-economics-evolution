@@ -181,6 +181,10 @@ object DeclareWar {
         // If we attacked, then we need to end all of our defensive pacts acording to Civ 5
         if (isOffensiveWar) {
             removeDefensivePacts(diplomacyManager)
+            // TW v2: an attacker states what it is after. The goal is what later tells it when
+            // the war is settled, instead of grinding on the force ratio of the moment.
+            // Defenders get no goal: their objective is simply to survive.
+            diplomacyManager.warGoal = WarGoal.forDeclarationOfWar(diplomacyManager.civInfo, civAtWarWith)
         }
         diplomacyManager.diplomaticStatus = DiplomaticStatus.War
         

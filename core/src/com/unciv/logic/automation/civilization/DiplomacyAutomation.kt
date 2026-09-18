@@ -12,6 +12,7 @@ import com.unciv.logic.civilization.diplomacy.DiplomacyManager
 import com.unciv.logic.civilization.diplomacy.DiplomaticModifiers
 import com.unciv.logic.civilization.diplomacy.DiplomaticStatus
 import com.unciv.logic.civilization.diplomacy.RelationshipLevel
+import com.unciv.logic.civilization.diplomacy.WarGoalStatus
 import com.unciv.logic.trade.TradeEvaluation
 import com.unciv.logic.trade.TradeLogic
 import com.unciv.logic.trade.TradeOffer
@@ -401,8 +402,15 @@ object DiplomacyAutomation {
             .toList()
 
         for (enemy in enemiesCiv) {
-            if (hasAtLeastMotivationToAttack(civInfo, enemy, 10f) >= 10) {
-                // We can still fight. Refuse peace.
+            // TW v2: a war fought for a stated goal ends when that goal is settled, whether it
+            // was reached or has become out of reach. Judging only on whether we can still
+            // fight is what made wars of attrition run forever with nothing at stake.
+            val goalStatus = civInfo.getDiplomacyManager(enemy)?.warGoal?.evaluate(civInfo, enemy)
+            val warGoalSettled = goalStatus == WarGoalStatus.Achieved
+                || goalStatus == WarGoalStatus.Unreachable
+
+            if (!warGoalSettled && hasAtLeastMotivationToAttack(civInfo, enemy, 10f) >= 10) {
+                // We can still fight and we have not got what we came for. Refuse peace.
                 continue
             }
             

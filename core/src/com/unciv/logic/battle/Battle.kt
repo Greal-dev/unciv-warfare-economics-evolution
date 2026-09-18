@@ -30,6 +30,11 @@ import kotlin.random.Random
  */
 object Battle {
 
+    /** TW v2 — damage (in HP) from which a defender prefers to give ground rather than hold it.
+     *  Roughly a third of a full-health unit: enough that skirmishes still resolve normally,
+     *  low enough that a decisive blow pushes the line back instead of erasing it. */
+    private const val RETREAT_DAMAGE_THRESHOLD = 30
+
     /**
      * Moves [attacker] to [attackableTile], handles siege setup then attacks if still possible
      * (by calling [attack] or [Nuke.NUKE]). Does _not_ play the attack sound!
@@ -401,6 +406,20 @@ object Battle {
                 potentialDamageToAttacker = 5
         }
 
+        // TW v2 — Tactical retreat. A unit facing a heavy blow (RETREAT_DAMAGE_THRESHOLD HP or
+        // more) falls back to an adjacent tile rather than standing its ground, and pays only
+        // half the damage for giving up the position. Fronts should break and pockets should
+        // form, instead of every engagement being fought to the last man.
+        // Melee only: you fall back before an assault, not before artillery — and a unit that
+        // could dodge every bombardment would make ranged units pointless.
+        var retreatTile: Tile? = null
+        if (attacker is MapUnitCombatant && attacker.isMelee()
+            && defender is MapUnitCombatant && !defender.unit.isCivilian()
+            && potentialDamageToDefender >= RETREAT_DAMAGE_THRESHOLD) {
+            retreatTile = findRetreatTile(attacker, defender)
+            if (retreatTile != null) potentialDamageToDefender /= 2
+        }
+
         val attackerHealthBefore = attacker.getHealth()
         val defenderHealthBefore = defender.getHealth()
 
@@ -424,6 +443,12 @@ object Battle {
                 }
             }
         }
+
+        // TW v2 — the retreat itself happens once the (halved) damage has landed, and only if
+        // the unit actually survived it. The attacker does not advance: it spent its attack
+        // pushing the defender off the tile, exactly as for the withdraw-before-melee ability.
+        if (retreatTile != null && defender is MapUnitCombatant && !defender.isDefeated())
+            doTacticalRetreat(defender, retreatTile)
 
         val defenderDamageDealt = attackerHealthBefore - attacker.getHealth()
         val attackerDamageDealt = defenderHealthBefore - defender.getHealth()
@@ -783,6 +808,58 @@ object Battle {
         }
     }
     
+    /** TW v2 — Tile the defender can fall back to under a heavy blow, or null if it is cornered
+     *  or not allowed to give ground.
+     *
+     *  Shares its rules with [doWithdrawFromMeleeAbility]: prefer tiles the attacker is not
+     *  adjacent to, never retreat from land into the sea, never into a city that is not ours.
+     *
+     *  The city-centre exclusion is the important one: since TW v2 the garrison IS the city's
+     *  defence, so a garrison allowed to step back would simply hand the city over. */
+    private fun findRetreatTile(attacker: MapUnitCombatant, defender: MapUnitCombatant): Tile? {
+        if (defender.unit.isEmbarked()) return null
+        if (defender.unit.cache.cannotMove) return null
+        if (defender.unit.isEscorting()) return null   // leaving the escorted unit defeats the purpose
+        if (defender.unit.isGuarding()) return null    // guarding this post, will fight to the death
+        if (defender.getTile().isCityCenter()) return null
+
+        val fromTile = defender.getTile()
+        val attackerTile = attacker.getTile()
+
+        fun canNotWithdrawTo(tile: Tile): Boolean =
+            !defender.unit.movement.canMoveTo(tile)
+                || defender.isLandUnit() && !tile.isLand
+                || tile.isCityCenter() && tile.getOwner() != defender.getCivInfo()
+
+        val awayFromAttacker = fromTile.neighbors
+            .filterNot { it == attackerTile || it in attackerTile.neighbors }
+            .filterNot { canNotWithdrawTo(it) }
+        val alongsideAttacker = fromTile.neighbors
+            .filter { it in attackerTile.neighbors }
+            .filterNot { canNotWithdrawTo(it) }
+        return when {
+            awayFromAttacker.any() -> awayFromAttacker.toList().random()
+            alongsideAttacker.any() -> alongsideAttacker.toList().random()
+            else -> null
+        }
+    }
+
+    /** TW v2 — Moves a defender that gave ground under fire. Free teleport, same as the
+     *  withdraw-before-melee ability: the unit did not choose to march, it was pushed. */
+    private fun doTacticalRetreat(defender: MapUnitCombatant, toTile: Tile) {
+        val fromTile = defender.getTile()
+        defender.unit.removeFromTile()
+        defender.unit.putInTile(toTile)
+        defender.unit.mostRecentMoveType = UnitMovementMemoryType.UnitWithdrew
+
+        val defenderName = defender.getName()
+        defender.getCivInfo().addNotification(
+            "[$defenderName] fell back under heavy fire",
+            LocationAction(toTile.position, fromTile.position),
+            NotificationCategory.War, defenderName, NotificationIcon.War
+        )
+    }
+
     private fun hasWithdrawnFromMeelee(attacker: ICombatant, defender: ICombatant, attackedTile: Tile): Boolean {
         return (attacker is MapUnitCombatant && attacker.isMelee() && defender is MapUnitCombatant
                 && defender.unit.hasUnique(UniqueType.WithdrawsBeforeMeleeCombat, gameContext = GameContext(

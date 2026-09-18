@@ -116,6 +116,22 @@ class CityTurnManager(val city: City) {
             if (cap != null && hasLandPathTo(cap)) city.isColony = false
         }
         
+        // TW v2: buildings paid for last turn are erected now. Gold buys speed, it does not
+        // abolish the time it takes to raise a building. A city that changed hands in the
+        // meantime has already had its pending list cleared, so the payment is simply lost.
+        if (city.cityConstructions.pendingPurchasedBuildings.isNotEmpty()) {
+            val ruleset = city.getRuleset()
+            for (buildingName in city.cityConstructions.pendingPurchasedBuildings.toList()) {
+                val building = ruleset.buildings[buildingName] ?: continue
+                // A wonder finished elsewhere, or the building obtained by other means in the
+                // meantime: the gold is spent either way, first payer wins the race.
+                if (!city.cityConstructions.containsBuildingOrEquivalent(buildingName)
+                    && building.isBuildable(city.cityConstructions))
+                    building.construct(city.cityConstructions)
+            }
+            city.cityConstructions.pendingPurchasedBuildings.clear()
+        }
+
         for (resource in city.getResourcesGeneratedByCity()) {
             if (resource.resource.isStockpiled && resource.resource.isCityWide)
                 city.gainStockpiledResource(resource.resource, resource.amount)

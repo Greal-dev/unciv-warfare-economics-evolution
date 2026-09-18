@@ -79,6 +79,10 @@ class CityConquestFunctions(val city: City) {
         }
         city.cityConstructions.freeBuildingsProvidedFromThisCity.clear()
 
+        // TW v2: buildings bought but not yet erected are lost with the city — the previous
+        // owner paid for them and gets nothing, the new owner inherits no building site.
+        city.cityConstructions.pendingPurchasedBuildings.clear()
+
         for (building in city.cityConstructions.getBuiltBuildings()) {
             // Remove national wonders
             if (building.isNationalWonder && !building.hasUnique(UniqueType.NotDestroyedWhenCityCaptured))

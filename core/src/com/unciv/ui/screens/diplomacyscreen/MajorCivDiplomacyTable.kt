@@ -66,6 +66,15 @@ class MajorCivDiplomacyTable(private val diplomacyScreen: DiplomacyScreen) {
                 diplomacyTable.add(diplomacyScreen.getDeclareWarButton(diplomacyManager, otherCiv)).row()
 
         } else if (diplomaticRelationshipsCanChange) {
+            // TW v2: state what each side is fighting for. A war the player can read the aim of
+            // is a war they can decide how to end, instead of an open-ended grind.
+            diplomacyManager.warGoal?.let {
+                diplomacyTable.add(("Our war aim: " + it.describe()).toLabel()).row()
+            }
+            otherCivDiplomacyManager.warGoal?.let {
+                diplomacyTable.add(("Their war aim: " + it.describe()).toLabel()).row()
+            }
+
             val negotiatePeaceButton =
                 getNegotiatePeaceMajorCivButton(otherCiv, otherCivDiplomacyManager)
 

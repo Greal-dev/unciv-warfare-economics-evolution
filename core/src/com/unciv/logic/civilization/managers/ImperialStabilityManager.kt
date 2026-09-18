@@ -60,10 +60,24 @@ class ImperialStabilityManager(val civInfo: Civilization) {
         val connectedCities = civInfo.cities.count { it != capital && it.isConnectedToCapital() }
         if (connectedCities > 0) breakdown["Connected cities"] = connectedCities * 2f
 
-        // Gold: +1 if gold/turn > 0, +2 if treasury > 500
+        // Gold: +1 if gold/turn > 0
         val goldPerTurn = civInfo.stats.statsForNextTurn.gold
         if (goldPerTurn > 0) breakdown["Positive income"] = 1f
-        if (civInfo.gold > 500) breakdown["Gold reserves"] = 2f
+
+        // TW v2 — the treasury is rated by how many turns of income it represents, not by
+        // an absolute threshold: a war chest of a few years' revenue reassures the realm,
+        // a hoard of decades invites corruption at home and envy abroad.
+        // The floor on the denominator keeps a civ with no (or negative) income from
+        // diverging into the maximum penalty while it is already in trouble.
+        val referenceIncome = maxOf(goldPerTurn, 10f + 5f * civInfo.cities.size)
+        val hoardRatio = civInfo.gold / referenceIncome
+        when {
+            hoardRatio < 2f -> {}                               // no meaningful reserve
+            hoardRatio < 10f -> breakdown["Gold reserves"] = 2f // healthy war chest
+            hoardRatio < 20f -> {}                              // neutral hoarding
+            else -> breakdown["Idle treasury"] =
+                (-2f - ((hoardRatio - 20f) / 10f).toInt()).coerceAtLeast(-8f)
+        }
 
         // Peace: +2 if not at war
         if (!civInfo.isAtWar()) breakdown["Peace"] = 2f

@@ -88,6 +88,12 @@ class CityConstructions : IsPartOfGameInfoSerialization {
     /** TW: Name of the last completed construction (for specialization bonus) */
     var lastCompletedConstruction: String = ""
 
+    /** TW v2: Buildings paid for this turn that are only erected at the start of the next one.
+     *  Gold buys speed, it does not abolish the time it takes to raise a building.
+     *  Mirrors [com.unciv.logic.civilization.Civilization.pendingPurchaseTiles] for improvements.
+     *  Empty by default, so saves from before this change load unchanged. */
+    val pendingPurchasedBuildings = HashSet<String>()
+
     /** Maps cities by id to a set of the buildings they received (by nation equivalent name)
      *  Source: [UniqueType.GainFreeBuildings]
      */
@@ -104,6 +110,8 @@ class CityConstructions : IsPartOfGameInfoSerialization {
         toReturn.constructionQueue.addAll(constructionQueue)
         toReturn.productionOverflow = productionOverflow
         toReturn.freeBuildingsProvidedFromThisCity.putAll(freeBuildingsProvidedFromThisCity)
+        toReturn.lastCompletedConstruction = lastCompletedConstruction
+        toReturn.pendingPurchasedBuildings.addAll(pendingPurchasedBuildings)
         return toReturn
     }
 
@@ -796,7 +804,10 @@ class CityConstructions : IsPartOfGameInfoSerialization {
             // postBuildEvent does the rest by calling cityConstructions.applyCreateOneImprovement
         }
 
-        if (construction is Building) construction.construct(this)
+        // TW v2 — a purchased building is paid for now and erected at the start of the next
+        // turn (see [pendingPurchasedBuildings] and [CityTurnManager.startTurn]). Units are
+        // deliberately exempt: a bought unit still appears immediately.
+        if (construction is Building) pendingPurchasedBuildings.add(construction.name)
         else if (construction is BaseUnit) {
             construction.construct(this, stat)
                 ?: return false  // nothing built - no pay
@@ -848,6 +859,8 @@ class CityConstructions : IsPartOfGameInfoSerialization {
         return when {
             city.isPuppet && !city.getMatchingUniques(UniqueType.MayBuyConstructionsInPuppets).any() -> false
             city.isInResistance() -> false
+            // TW v2: already paid for this turn, waiting to be erected — don't let it be bought twice
+            construction.name in pendingPurchasedBuildings -> false
             !construction.isPurchasable(city.cityConstructions) -> false    // checks via 'rejection reason'
             construction is BaseUnit && !city.canPlaceNewUnit(construction) -> false
             !construction.canBePurchasedWithStat(city, stat) -> false

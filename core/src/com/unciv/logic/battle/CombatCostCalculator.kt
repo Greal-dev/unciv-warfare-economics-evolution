@@ -57,8 +57,11 @@ object CombatCostCalculator {
         return cost
     }
 
+    /** Effective logistic distance: hexes to the nearest owned city, halved when the unit
+     *  stands on a road. Returns 0 when the unit is in one of its own cities, or when the
+     *  civ has no city at all. Also drives the supply-line strength malus in [BattleDamage]. */
     @Readonly
-    private fun computeDistanceFactor(civ: Civilization, tile: Tile): Float {
+    fun computeDistanceFactor(civ: Civilization, tile: Tile): Float {
         if (civ.cities.isEmpty()) return 0f
         var minDist = Int.MAX_VALUE
         for (city in civ.cities) {

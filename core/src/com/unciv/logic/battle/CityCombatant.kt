@@ -64,9 +64,11 @@ class CityCombatant(val city: City) : ICombatant {
         val g = cityTile.militaryUnit
         var strength = if (g != null) {
             // Garrison's full combat strength (scaled by health) carries the defense.
-            // TW v2 — Cities provide an inherent +50% to the garrison strength
+            // TW v2 — Cities provide an inherent +200% to the garrison strength
             // (urban terrain advantage), independent of walls / fortification / terrain.
-            g.baseUnit.strength.toFloat() * (g.health / 100f) * 1.5f
+            // Storming a defended city head-on is meant to be a last resort: the siege
+            // mechanic (full encirclement, surrender after 3 turns) is the normal way in.
+            g.baseUnit.strength.toFloat() * (g.health / 100f) * 3f
         } else 1f  // undefended city — barely standing
 
         // Terrain still matters (hill, fort, etc.)
