@@ -25,6 +25,7 @@ import com.unciv.models.ruleset.nation.Nation
 import com.unciv.models.ruleset.nation.Personality
 import com.unciv.models.ruleset.tech.Era
 import com.unciv.models.ruleset.tile.ResourceSupplyList
+import com.unciv.models.ruleset.tile.ResourceType
 import com.unciv.models.ruleset.tile.TileImprovement
 import com.unciv.models.ruleset.tile.TileResource
 import com.unciv.models.ruleset.unique.*
@@ -120,6 +121,24 @@ class Civilization : IsPartOfGameInfoSerialization {
     @Transient
     var neutralRoads = HashSet<HexCoord>()
 
+    /** TW v2 — Set of own military units currently inside a choked, sea-isolated land
+     *  pocket (see [com.unciv.logic.map.PocketIsolationCheck]). Recomputed once per turn
+     *  in [com.unciv.logic.civilization.managers.TurnManager.startTurn]. */
+    @Transient
+    var chokedPocketUnits: Map<com.unciv.logic.map.mapunit.MapUnit, Float> = emptyMap()
+
+    /** TW v2 — tile positions where this civ has paid for an improvement that is queued
+     *  with a 1-turn delay. Processed at start of next turn by TurnManager. */
+    var pendingPurchaseTiles = HashSet<HexCoord>()
+
+    /** TW v2 — automatic improvements toggle for human player. When true, at each
+     *  turn start the civ runs [ImprovementPurchaseAutomation] using
+     *  [autoImprovementsReserve] as the strategic gold floor: any gold above that
+     *  threshold is spent on prioritized infrastructure (farms / resource improvements
+     *  → trading posts → forest clearance). */
+    var autoImprovementsEnabled: Boolean = false
+    var autoImprovementsReserve: Int = 100
+
     val modConstants get() = gameInfo.ruleset.modOptions.constants
 
     var playerType = PlayerType.AI
@@ -213,6 +232,13 @@ class Civilization : IsPartOfGameInfoSerialization {
     var demographicShockCitiesThisTurn = 0
     /** Territorial Warfare: whether this civ has already suffered a civil war (one-time event) */
     var hasSufferedCivilWar = false
+
+    /** TW v2 — Consecutive turns of peacetime bankruptcy (gold < -50 AND projected income < 0 AND
+     *  not at war). When the streak reaches a threshold, the empire loses its farthest city to
+     *  secession (joins a culturally dominant neighbour, becomes a city-state, or — if no good
+     *  target — declares as a brand new minor nation). Reset to 0 the moment the civ goes back to
+     *  positive income, regains a buffer, or enters a war. */
+    var peacetimeBankruptcyTurns: Int = 0
 
     /** TW: Name of the suzerain civilization, null if not a vassal */
     var vassalOf: String? = null
@@ -326,6 +352,9 @@ class Civilization : IsPartOfGameInfoSerialization {
         toReturn.proximity.putAll(proximity)
         toReturn.cities = cities.map { it.clone() }
         toReturn.neutralRoads = neutralRoads
+        toReturn.pendingPurchaseTiles = HashSet(pendingPurchaseTiles)
+        toReturn.autoImprovementsEnabled = autoImprovementsEnabled
+        toReturn.autoImprovementsReserve = autoImprovementsReserve
         toReturn.exploredRegion = exploredRegion.clone()
         toReturn.lastSeenImprovement.putAll(lastSeenImprovement)
         toReturn.leaderTitle = leaderTitle
@@ -568,6 +597,56 @@ class Civilization : IsPartOfGameInfoSerialization {
     fun getResourceAmount(resource: TileResource): Int {
         if (resource.isStockpiled) return resourceStockpiles[resource.name]
         return getCivResourceSupply().firstOrNull { it.resource == resource }?.amount ?: 0
+    }
+
+    /**
+     * Territorial Warfare: count of distinct resource types currently owned by this civ,
+     * capped to keep the bonus from scaling endlessly.
+     *
+     * - strategic: rewards controlling iron, coal, oil, ... (caps military/industrial output)
+     * - luxury: rewards controlling diverse luxuries (caps trade income)
+     * - bonus: rewards controlling food/yield bonus tiles (caps growth)
+     *
+     * Resources with non-positive net amount (consumed > produced) do not count.
+     */
+    data class ResourceDiversity(val strategic: Int, val luxury: Int, val bonus: Int)
+
+    /**
+     * TW v2 — total strategic resource surplus across all owned strategics.
+     * "Surplus" = net amount after consumption (negatives ignored).
+     * Used by the per-city gold bonus: spare iron/coal/oil/etc. = trade leverage.
+     */
+    @Readonly
+    fun getStrategicSurplus(): Int {
+        var total = 0
+        for ((name, amount) in getCivResourcesByName()) {
+            if (amount <= 0) continue
+            val type = gameInfo.ruleset.tileResources[name]?.resourceType ?: continue
+            if (type == ResourceType.Strategic) total += amount
+        }
+        return total
+    }
+
+    @Readonly
+    fun getResourceDiversity(): ResourceDiversity {
+        val owned = getCivResourcesByName()
+        var strategic = 0
+        var luxury = 0
+        var bonus = 0
+        for ((name, amount) in owned) {
+            if (amount <= 0) continue
+            val type = gameInfo.ruleset.tileResources[name]?.resourceType ?: continue
+            when (type) {
+                ResourceType.Strategic -> strategic++
+                ResourceType.Luxury -> luxury++
+                ResourceType.Bonus -> bonus++
+            }
+        }
+        return ResourceDiversity(
+            strategic = strategic.coerceAtMost(8),
+            luxury = luxury.coerceAtMost(6),
+            bonus = bonus.coerceAtMost(8)
+        )
     }
 
     /** Gets modifiers for ALL resources */

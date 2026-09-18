@@ -54,9 +54,12 @@ class UnitTurnManager(val unit: MapUnit) {
         }
 
         doCitadelDamage()
-        doIsolationAttrition()
+        // TW v2 — Removed: doIsolationAttrition (HP/turn for choked pockets). Encirclement is now
+        // a combat-strength modifier handled in BattleDamage.getGeneralModifiers ("Encircled" = -75)
+        // and only triggers when the unit is fully surrounded by enemy-controlled land tiles.
         doTerrainDamage()
         doRebellionAttrition()
+        doGarrisonStressAttrition()
 
         unit.addMovementMemory()
 
@@ -114,39 +117,6 @@ class UnitTurnManager(val unit: MapUnit) {
     }
 
 
-    /** Territorial Warfare: military units surrounded by enemy territory lose 50 HP/turn */
-    private fun doIsolationAttrition() {
-        if (!unit.isMilitary()) return
-        val tile = unit.currentTile
-        val tileOwner = tile.getOwner() ?: return
-        if (!unit.civ.isAtWarWith(tileOwner)) return
-
-        // Check if ALL adjacent tiles are in enemy territory
-        val allAdjacentEnemy = tile.neighbors.all { neighbor ->
-            val owner = neighbor.getOwner()
-            owner != null && unit.civ.isAtWarWith(owner)
-        }
-        if (!allAdjacentEnemy) return
-
-        unit.takeDamage(50)
-        if (unit.health <= 0) {
-            unit.civ.addNotification(
-                "Our [${unit.name}] was destroyed by isolation in enemy territory",
-                tile.position,
-                NotificationCategory.War,
-                unit.name, NotificationIcon.Death
-            )
-            unit.destroy()
-        } else {
-            unit.civ.addNotification(
-                "Our [${unit.name}] is taking attrition damage from isolation in enemy territory",
-                MapUnitAction(unit),
-                NotificationCategory.War,
-                unit.name
-            )
-        }
-    }
-
     private fun doTerrainDamage() {
         val tileDamage = unit.getDamageFromTerrain()
         if (tileDamage == 0) return
@@ -170,9 +140,76 @@ class UnitTurnManager(val unit: MapUnit) {
     }
 
 
+    /** TW v2 — Cultural-stress garrison attrition.
+     *  When a military unit stays on a culturally hostile tile of its own civ (either friendly
+     *  share below 70%, or local culture overtaking the national one), a stress counter ramps up.
+     *  After 15 grace turns the unit starts losing up to 30 HP/turn proportional to how foreign
+     *  the tile feels. The civilization can automatically pay a maintenance subsidy (4 gold per
+     *  HP suppressed) to spare the unit when its treasury allows. The counter resets the moment
+     *  the unit moves to a friendlier tile (or off-own-territory). Skipped on rebelling tiles —
+     *  [doRebellionAttrition] already covers those with its flat 15 HP/turn. */
+    private fun doGarrisonStressAttrition() {
+        if (!unit.isMilitary()) return
+        // TW v2 — Naval units don't garrison cities and don't experience cultural friendly/hostile
+        // population pressure: they operate at sea, not amongst the populace.
+        if (unit.baseUnit.isWaterUnit) { unit.garrisonStressTurns = 0; return }
+        val tile = unit.currentTile
+        // Rotation breaks the cycle: the moment the unit moves at all this turn, stress resets.
+        if (unit.hasUnitMovedThisTurn()) {
+            unit.garrisonStressTurns = 0
+            return
+        }
+        if (com.unciv.logic.map.TileCultureLogic.shouldTakeRebellionAttrition(tile)) {
+            // Rebellion attrition path takes precedence; reset stress so the two systems don't double-count.
+            unit.garrisonStressTurns = 0
+            return
+        }
+        val damage = com.unciv.logic.map.TileCultureLogic.getGarrisonStressDamage(tile, unit.civ)
+        if (damage == null) {
+            // Tile is culturally fine (or not ours) → recover.
+            unit.garrisonStressTurns = 0
+            return
+        }
+        unit.garrisonStressTurns++
+        if (unit.garrisonStressTurns <= com.unciv.logic.map.TileCultureLogic.GARRISON_STRESS_GRACE_TURNS) return
+
+        val subsidyCost = damage * com.unciv.logic.map.TileCultureLogic.GARRISON_SUBSIDY_COST_PER_HP
+        if (unit.civ.gold >= subsidyCost) {
+            unit.civ.addGold(-subsidyCost)
+            unit.civ.addNotification(
+                "Our [${unit.name}] holds its garrison thanks to a [$subsidyCost] gold cultural subsidy.",
+                MapUnitAction(unit),
+                NotificationCategory.War,
+                unit.name
+            )
+            return
+        }
+
+        unit.takeDamage(damage)
+        if (unit.isDestroyed) {
+            unit.civ.addNotification(
+                "Our [${unit.name}] crumbled to cultural stress in a foreign-feeling post!",
+                tile.position,
+                NotificationCategory.War,
+                unit.name, NotificationIcon.Death
+            )
+        } else {
+            unit.civ.addNotification(
+                "Our [${unit.name}] is wearing down in a culturally hostile post (-$damage HP) — rotate it or fund a [$subsidyCost] gold subsidy.",
+                MapUnitAction(unit),
+                NotificationCategory.War,
+                unit.name
+            )
+        }
+    }
+
+
     /** Territorial Warfare: military units on rebelling tiles take attrition damage */
     private fun doRebellionAttrition() {
         if (!unit.isMilitary()) return
+        // TW v2 — Naval units are immune to land-civilian rebellion attrition: rebellions are land
+        // population uprisings, a ship in coastal waters isn't taxed by them.
+        if (unit.baseUnit.isWaterUnit) return
         val tile = unit.currentTile
         if (!com.unciv.logic.map.TileCultureLogic.shouldTakeRebellionAttrition(tile)) return
         // Only affects the tile owner's units (garrison trying to quell rebellion)
@@ -204,6 +241,7 @@ class UnitTurnManager(val unit: MapUnit) {
         unit.attacksThisTurn = 0
         unit.due = true
         unit.hasClaimedNeutralTileThisTurn = false
+        unit.restoreCountThisTurn = 0
 
         // Territorial Warfare: kill bonus decays -1% per turn
         if (unit.killBonus > 0f) {

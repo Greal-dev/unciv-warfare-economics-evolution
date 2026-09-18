@@ -96,6 +96,7 @@ object UnitActions {
         UnitActionType.RemoveHeresy to UnitActionsReligion::getRemoveHeresyActions,
         UnitActionType.TriggerUnique to UnitActionsFromUniques::getTriggerUniqueActions,
         UnitActionType.AddInCapital to UnitActionsFromUniques::getAddInCapitalActions,
+        UnitActionType.JoinCity to UnitActionsFromUniques::getJoinCityActions,
         UnitActionType.GiftUnit to UnitActions::getGiftActions
     )
 
@@ -152,6 +153,7 @@ object UnitActions {
         yieldAll(UnitActionsUpgrade.getUpgradeActions(unit))
         yieldAll(UnitActionsPillage.getPillageActions(unit, tile))
 
+        addRestoreUnitAction(unit)
         addSleepActions(unit, tile)
         addFortifyActions(unit)
 
@@ -257,6 +259,51 @@ object UnitActions {
             action = {
                 UncivGame.Current.pushScreen(PromotionPickerScreen(unit))
             }.takeIf { unit.hasMovement() && unit.attacksThisTurn == 0 }
+        ))
+    }
+
+    /** TW v2 — Pay gold to restore part of the unit's missing HP.
+     *  Each call heals 25% of the unit's missing HP at turn start (so up to two calls
+     *  per turn cumulatively restore 50%). Lives are not bought back, only materiel.
+     *  - First restore: cost = restored × (era + 1) × 2.
+     *  - Second restore: cost = restored × (era + 1) × 8 (×4 per HP vs first).
+     *  Consumes 1 movement point if any remains; capped at 2 calls per unit per turn. */
+    private suspend fun SequenceScope<UnitAction>.addRestoreUnitAction(unit: MapUnit) {
+        if (!unit.isMilitary()) return
+        if (unit.health >= 100) return
+        val restoreNum = unit.restoreCountThisTurn
+        if (restoreNum >= 2) return
+        val currentMissing = 100 - unit.health
+        // Heal 25% of original missing each call. After 1st heal, current missing = 75%
+        // of original; dividing by 3 again gives 25% of original. After 2nd, 50% original
+        // is restored total — no more calls allowed.
+        val restored = if (restoreNum == 0) currentMissing / 4 else currentMissing / 3
+        if (restored < 1) return
+        val era = unit.civ.getEraNumber() + 1
+        val priceMultiplier = if (restoreNum == 0) 2 else 8
+        val cost = restored * era * priceMultiplier
+        val canAfford = unit.civ.gold >= cost
+        val label = if (restoreNum == 0)
+            "Restore unit (+$restored HP, $cost ${com.unciv.ui.components.fonts.Fonts.gold})"
+        else
+            "Restore unit further (+$restored HP, $cost ${com.unciv.ui.components.fonts.Fonts.gold})"
+        yield(UnitAction(
+            type = UnitActionType.RestoreUnit,
+            useFrequency = 70f,
+            title = label,
+            action = {
+                unit.civ.addGold(-cost)
+                unit.healBy(restored)
+                unit.restoreCountThisTurn += 1
+                if (unit.currentMovement > 0f)
+                    unit.currentMovement = (unit.currentMovement - 1f).coerceAtLeast(0f)
+                unit.civ.addNotification(
+                    "Our [${unit.name}] was restored for [$cost] gold (+$restored HP)",
+                    unit.currentTile.position,
+                    com.unciv.logic.civilization.NotificationCategory.Units,
+                    unit.name
+                )
+            }.takeIf { canAfford }
         ))
     }
 

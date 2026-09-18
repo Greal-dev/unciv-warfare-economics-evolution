@@ -123,6 +123,7 @@ enum class DiplomaticModifiers(val text: String) {
     SidedWithProtectedMinor("You sided with a City-State over us"),
     SpiedOnUs("You spied on us!"),
     StoleOurAlly("You took the alliance we had with a City-State"),
+    HegemonyThreat("Your unprecedented hegemony alarms us!"),
 
     // Positive
     EstablishedEmbassy("We have an embassy in your capital"),

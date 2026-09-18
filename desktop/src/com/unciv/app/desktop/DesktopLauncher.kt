@@ -38,6 +38,25 @@ internal object DesktopLauncher {
     @JvmStatic
     fun main(arg: Array<String>) {
 
+        // TW v2: --testai=<N>[x<R>][@<Speed>] launches headless all-AI test session(s).
+        //   --testai=500          → 1 run of 500 turns, Standard speed
+        //   --testai=500x3        → 3 runs of 500 turns
+        //   --testai=750@Epic     → 1 run of 750 turns at Epic speed
+        //   --testai=1500x2@Marathon
+        val testAiArg = arg.find { it.startsWith("--testai") }
+        if (testAiArg != null) {
+            val raw = testAiArg.substringAfter("=", "150")
+            val speedPart = if (raw.contains("@")) raw.substringAfter("@") else "Standard"
+            val sizePart = if (raw.contains("@")) raw.substringBefore("@") else raw
+            val (turnsPart, runsPart) = if (sizePart.contains("x"))
+                sizePart.split("x").let { it[0] to it.getOrElse(1) { "1" } }
+            else sizePart to "1"
+            val turns = turnsPart.toIntOrNull() ?: 150
+            val runs = runsPart.toIntOrNull() ?: 1
+            TestAi.run(turns, runs, speedPart)
+            exitProcess(0)
+        }
+
         // Find the index of the "-creategame" parameter
         val createGameArg = arg.find { it.startsWith("--creategame=") }
         if (createGameArg != null) {

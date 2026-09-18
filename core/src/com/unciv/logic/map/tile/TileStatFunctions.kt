@@ -53,13 +53,22 @@ class TileStatFunctions(val tile: Tile) {
                 stats[stat] *= value.toPercent()
         }
 
-        // Territorial Warfare: scale yields by owner's cultural share
+        // Territorial Warfare: scale yields by owner's cultural share.
+        // TW v2: food uses a softer curve (floor 0.5; era ≥ 3 → 1.0) — historical
+        // agricultural revolution ends famines tied to local ethnic instability,
+        // while gold/science/etc. still suffer the full cultural penalty.
         val cultureMultiplier = com.unciv.logic.map.TileCultureLogic.getYieldMultiplier(tile)
-        if (cultureMultiplier < 1f) {
-            return statsBreakdown.toStats() * cultureMultiplier
-        }
-
-        return statsBreakdown.toStats()
+        val foodMultiplier = com.unciv.logic.map.TileCultureLogic.getFoodMultiplier(tile)
+        val raw = statsBreakdown.toStats()
+        return Stats(
+            production = raw.production * cultureMultiplier,
+            food = raw.food * foodMultiplier,
+            gold = raw.gold * cultureMultiplier,
+            science = raw.science * cultureMultiplier,
+            culture = raw.culture * cultureMultiplier,
+            happiness = raw.happiness * cultureMultiplier,
+            faith = raw.faith * cultureMultiplier
+        )
     }
 
     @Readonly

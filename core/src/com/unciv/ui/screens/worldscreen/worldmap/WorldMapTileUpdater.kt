@@ -55,6 +55,15 @@ object WorldMapTileUpdater {
             }
         }
 
+        // TW v2 — highlight tiles in the Road plan in orange (selected) and eligible neighbours
+        // of the plan in light yellow (hints where to extend) while in road plan mode.
+        if (com.unciv.logic.map.tile.RoadConnectBuyMode.active
+            && com.unciv.logic.map.tile.RoadConnectBuyMode.civ == viewingCiv) {
+            for (planTile in com.unciv.logic.map.tile.RoadConnectBuyMode.tiles) {
+                tileGroups[planTile]?.layerOverlay?.showHighlight(Color.ORANGE, 0.7f)
+            }
+        }
+
         // Same as below - randomly, tileGroups doesn't seem to contain the selected tile, and this doesn't seem reproducible
         tileGroups[selectedTile]?.layerOverlay?.showHighlight(Color.WHITE)
 

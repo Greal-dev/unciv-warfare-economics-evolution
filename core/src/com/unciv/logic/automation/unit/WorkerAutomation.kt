@@ -438,7 +438,12 @@ class WorkerAutomation(
         if (improvement.isRoad() && roadBetweenCitiesAutomation.bestRoadAvailable.improvement(ruleSet) == improvement
             && tile in roadBetweenCitiesAutomation.tilesOfRoadsMap) {
             val roadPlan = roadBetweenCitiesAutomation.tilesOfRoadsMap[tile]!!
-            val value = (roadPlan.priority - 9) // We want some forest chopping and farm building first if the road doesn't have high priority
+            // TW v2 — Routes upgraded from a -9 malus to -3. Roads now carry national culture
+            // (only roaded/improved tiles absorb cultural inflow beyond the city's immediate ring),
+            // so meshing the empire fast is strategically critical, not optional. We still leave a
+            // small malus so very high-yield farm/forest swaps come first when nothing urgent is at
+            // stake, but cities cut off from the capital (priority ≥ 2) flip to positive value.
+            val value = (roadPlan.priority - 3)
             return value
         }
 

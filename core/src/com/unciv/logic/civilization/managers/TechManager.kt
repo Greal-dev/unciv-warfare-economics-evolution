@@ -105,7 +105,8 @@ class TechManager : IsPartOfGameInfoSerialization {
     @Readonly
     fun costOfTech(techName: String): Int {
         var techCost = getRuleset().technologies[techName]!!.cost.toFloat()
-        techCost *= 1.2f // TW: +20% base tech cost
+        techCost *= 1.5f // TW v2: ×1.5 base tech cost — Renaissance lands ~1500-1700 AD,
+                          // Atomic well before 2030 collapse.
         if (civInfo.isHuman())
             techCost *= civInfo.getDifficulty().researchCostModifier
         techCost *= civInfo.gameInfo.speed.scienceCostModifier
@@ -124,6 +125,25 @@ class TechManager : IsPartOfGameInfoSerialization {
                 unit.isMilitary && unit.requiredTech == techName
             }
             if (!isMilitaryTech) techCost *= 2.0f
+        }
+
+        // TW v2 — Convergence dynamics:
+        //   Phase 1 (gap widens): Atomic-era civs pay +50% tech cost (late-game decadence,
+        //     diminishing returns of mature empires).
+        //   Phase 2 (catch-up): civs that lag behind the leader by N eras get an N×30%
+        //     research discount, modeling tech transfer / leapfrogging by emerging powers.
+        // The discount fades as the lagging civ closes the era gap.
+        val myEra = civInfo.getEraNumber()
+        val maxEra = civInfo.gameInfo.civilizations
+            .filter { it.isMajorCiv() && it.isAlive() }
+            .maxOfOrNull { it.getEraNumber() } ?: myEra
+        val eraGap = (maxEra - myEra).coerceAtLeast(0)
+        if (eraGap > 0) {
+            // 1 era behind → ×0.77 (-23%) ; 3 eras → ×0.53 ; 5 eras → ×0.40
+            techCost /= (1.0f + eraGap * 0.30f)
+        }
+        if (myEra >= 6) {
+            techCost *= 1.5f
         }
 
         return techCost.toInt()
@@ -149,17 +169,17 @@ class TechManager : IsPartOfGameInfoSerialization {
         return costOfTech(techName) - researchOfTech(techName) - spareScience
     }
 
-    @Readonly
+    // Not @Readonly: queries CalendarPacedScience which lazily refreshes its per-turn cache.
     fun turnsToTech(techName: String): String {
         val remainingCost = remainingScienceToTech(techName).toDouble()
-        return when {
-            remainingCost <= 0f -> (0).tr()
-            civInfo.stats.statsForNextTurn.science <= 0f -> Fonts.infinity.toString()
-            else -> max(
-                1,
-                ceil(remainingCost / civInfo.stats.statsForNextTurn.science).toInt()
-            ).tr()
-        }
+        if (remainingCost <= 0f) return (0).tr()
+        // TW v2 — actual progress uses the calendar-paced effective rate (CalendarPacedScience), not
+        // raw science. Displaying turns based on raw lies to the player whenever pacing diverges from
+        // raw — most visibly at era boundaries where the displayed and actual counts differ ~10×.
+        val effective = com.unciv.logic.civilization.CalendarPacedScience
+            .effectiveSciencePerTurn(civInfo).toDouble()
+        if (effective <= 0.0) return Fonts.infinity.toString()
+        return max(1, ceil(remainingCost / effective).toInt()).tr()
     }
     
     @Readonly fun isResearched(techName: String): Boolean = techsResearched.contains(techName)

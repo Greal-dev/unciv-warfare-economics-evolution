@@ -17,9 +17,41 @@ import kotlin.math.min
 import kotlin.math.pow
 import kotlin.random.Random
 
+/** TW v2 — A freshly-spawned barbarian unit is only allowed on this tile when:
+ *  - the tile is unowned (wild lands, no culture map yet), OR
+ *  - the owner is the Barbarian civ itself, OR
+ *  - the owned tile has at least 60 % "Barbarians" culture share, OR
+ *  - the owner is Russia (Russia trait — barbarian-free territory).
+ *
+ *  Applied as a post-placement check in [BarbarianManager.trySpontaneousBarbarianSpawn]
+ *  and [Encampment.spawnUnit] — if a freshly placed barbarian drifts (via
+ *  [TileMap.placeUnitNearTile]'s neighbour search) onto a forbidden tile, it is
+ *  immediately destroyed. */
+@Readonly
+internal fun barbSpawnAllowedOn(tile: Tile): Boolean {
+    // TW v2 — Post-absorption pacification: a freshly absorbed city-state's former
+    // territory is barbarian-free for a grace period (see TileCultureLogic absorption).
+    if (tile.barbarianGraceTurns > 0) return false
+    val owner = tile.getOwner() ?: return true
+    if (owner.isBarbarian) return true
+    if (owner.civName == "Russia") return false  // protected territory
+    // TW v2 — Maritime borders: no barbarian ever spawns in a civ's owned territorial
+    // waters. Coastal navies of major civs / city-states keep their waters clear.
+    if (tile.isWater) return false
+    val barbCulture = tile.cultureMap["Barbarians"] ?: 0f
+    return barbCulture >= 0.60f
+}
+
 class BarbarianManager : IsPartOfGameInfoSerialization {
 
     val encampments = ArrayList<Encampment>()
+
+    /** TW v2 — Russia trait: any tile owned by Russia repels barbarians (no camps, no
+     *  spontaneous uprisings). Russia is famously barbarian-free historically. */
+    @Readonly
+    private fun isRussianProtectedTile(tile: Tile): Boolean {
+        return tile.getOwner()?.civName == "Russia"
+    }
 
     @Transient
     lateinit var gameInfo: GameInfo
@@ -82,7 +114,15 @@ class BarbarianManager : IsPartOfGameInfoSerialization {
 
         val barbarianCiv = gameInfo.getBarbarianCivilization()
 
-        // Find owned tiles with high barbarian culture and no military unit
+        // TW v2: during a global crisis, barbarian APPEARANCES are restricted to
+        // frontier tiles only. They still raid deep inland — they just spawn at borders.
+        val crisisActive = com.unciv.logic.map.TileCultureLogic.isGlobalCrisisActive(gameInfo)
+
+        // TW v2 — Tightened thresholds.
+        //  - Tile must have ≥60% barbarian culture (was 50%)
+        //  - Spawn chance: 60%→0%, 100%→4%/turn (was 50%→0%, 100%→20%)
+        //  - Empire-wide cap: at most 3 spontaneous spawns per turn world-wide
+        //  - At least 4 tiles between concurrent barbarians (was 3)
         val candidates = mutableListOf<Tile>()
         for (civ in gameInfo.civilizations) {
             if (civ.isBarbarian || civ.isSpectator() || civ.isDefeated()) continue
@@ -92,24 +132,28 @@ class BarbarianManager : IsPartOfGameInfoSerialization {
                     if (tile.isCityCenter()) continue
                     if (tile.militaryUnit != null) continue
                     if (tile.isWater) continue
+                    if (tile.barbarianGraceTurns > 0) continue  // TW v2 post-absorption pacification
+                    if (isRussianProtectedTile(tile)) continue  // TW v2 Russia trait
+                    if (crisisActive && !com.unciv.logic.map.TileCultureLogic.isFrontierTile(tile)) continue
                     val barbCulture = tile.cultureMap["Barbarians"] ?: 0f
-                    // Only spawn on tiles with significant barbarian culture (>50%)
-                    if (barbCulture > 0.50f) candidates.add(tile)
+                    if (barbCulture > 0.60f) candidates.add(tile)
                 }
             }
         }
 
         if (candidates.isEmpty()) return
 
-        // Spawn chance per tile: proportional to barbarian culture level
-        // Higher culture = higher chance. At 100% barb culture: ~20% chance per turn.
+        candidates.shuffle()  // avoid bias toward early-iterated civs
+        var spawnedThisTurn = 0
+        val globalCap = 3
+
         for (tile in candidates) {
+            if (spawnedThisTurn >= globalCap) break
             val barbCulture = tile.cultureMap["Barbarians"] ?: 0f
-            val spawnChance = (barbCulture - 0.50f) * 0.40f  // 50%→0%, 75%→10%, 100%→20%
+            val spawnChance = (barbCulture - 0.60f) * 0.10f  // 60%→0%, 80%→2%, 100%→4%
             if (Random.Default.nextFloat() >= spawnChance) continue
 
-            // Check not too many barbarians already nearby
-            if (tile.getTilesInDistance(3).count { it.militaryUnit?.civ?.isBarbarian == true } > 1) continue
+            if (tile.getTilesInDistance(4).count { it.militaryUnit?.civ?.isBarbarian == true } > 0) continue
 
             // Spawn a barbarian unit — use shared tech update
             updateBarbarianTech()
@@ -128,7 +172,11 @@ class BarbarianManager : IsPartOfGameInfoSerialization {
 
             val spawned = tileMap.placeUnitNearTile(tile.position, chosenUnit, barbarianCiv)
             if (spawned != null) {
-                // Notify tile owner
+                if (!barbSpawnAllowedOn(spawned.currentTile)) {
+                    spawned.destroy()
+                    continue
+                }
+                spawnedThisTurn++
                 tile.getOwner()?.addNotification(
                     "Barbarian uprising! Rebels have appeared near [${tile.getCity()?.name ?: "unknown"}]!",
                     tile.position,
@@ -183,6 +231,8 @@ class BarbarianManager : IsPartOfGameInfoSerialization {
                     && it.neighbors.any { neighbor -> neighbor.isLand }
                     && it !in tooCloseToCapitals
                     && it !in tooCloseToCamps
+                    && it.barbarianGraceTurns == 0  // TW v2 post-absorption pacification
+                    && !isRussianProtectedTile(it)
         }.toMutableList()
 
         var tile: Tile?
@@ -334,9 +384,16 @@ class Encampment() : IsPartOfGameInfoSerialization {
     /** Attempts to spawn a barbarian on [position], returns true if successful and false if unsuccessful. */
     private fun spawnUnit(naval: Boolean): Boolean {
         updateBarbarianTech()
-        val unitToSpawn = chooseBarbarianUnit(naval) ?: return false // return false if we didn't find a unit
+        val unitToSpawn = chooseBarbarianUnit(naval) ?: return false
         val spawnedUnit = gameInfo.tileMap.placeUnitNearTile(position.toHexCoord(), unitToSpawn, gameInfo.getBarbarianCivilization())
-        return (spawnedUnit != null)
+            ?: return false
+        // TW v2: forbid landing on tiles where barbarians have <60% cultural share
+        // (Russia tiles, deep-civilian-territory of any major civ, etc.)
+        if (!barbSpawnAllowedOn(spawnedUnit.currentTile)) {
+            spawnedUnit.destroy()
+            return false
+        }
+        return true
     }
     
     /** TW: delegates to BarbarianManager.updateBarbarianTech() */

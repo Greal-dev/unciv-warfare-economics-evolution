@@ -28,6 +28,25 @@ object DeclareWar {
         val otherCiv = diplomacyManager.otherCiv
         val otherCivDiplomacy = diplomacyManager.otherCivDiplomacy()
 
+        // TW v2 — Une civilisation ne peut pas attaquer directement une cité-État protégée
+        // par son alliée : elle doit d'abord déclarer la guerre à l'alliée. La cité-État
+        // sera ensuite tirée dans la guerre par le mécanisme `callInCityStateAllies` standard.
+        if (declareWarReason.warType == WarType.DirectWar
+            && otherCiv.isCityState
+            && otherCiv.allyCiv != null
+            && otherCiv.allyCiv != civInfo
+            && !civInfo.isAtWarWith(otherCiv.allyCiv!!)) {
+            val ally = otherCiv.allyCiv!!
+            if (!civInfo.knows(ally))
+                civInfo.diplomacyFunctions.makeCivilizationsMeet(ally, warOnContact = true)
+            civInfo.addNotification(
+                "[${otherCiv.civName}] is allied with [${ally.civName}] — declaring war on [${ally.civName}] first!",
+                NotificationCategory.Diplomacy, NotificationIcon.War, ally.civName
+            )
+            civInfo.getDiplomacyManager(ally)!!.declareWar(DeclareWarReason(WarType.DirectWar))
+            return
+        }
+
         if (otherCiv.isCityState && declareWarReason.warType == WarType.DirectWar)
             handleCityStateDirectAttack(diplomacyManager)
 

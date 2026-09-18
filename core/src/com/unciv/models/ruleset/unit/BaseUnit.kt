@@ -197,6 +197,9 @@ class BaseUnit : RulesetObject(), INonPerpetualConstruction {
     @Readonly fun getDisbandGold(civInfo: Civilization) = getBaseGoldCost(civInfo, null).toInt() / 20
 
     override fun shouldBeDisplayed(cityConstructions: CityConstructions): Boolean {
+        // TW v2: Workers are completely hidden — they're replaced by gold-purchased improvements.
+        if (hasUnique(UniqueType.BuildImprovements)) return false
+
         val rejectionReasons = getRejectionReasons(cityConstructions)
 
         if (hasUnique(UniqueType.ShowsWhenUnbuilable, cityConstructions.city.state) &&
@@ -256,6 +259,10 @@ class BaseUnit : RulesetObject(), INonPerpetualConstruction {
 
         if (hasUnique(UniqueType.Unbuildable, stateForConditionals))
             yield(RejectionReasonType.Unbuildable.toInstance())
+
+        // TW v2: Workers are obsolete — improvements are bought directly with gold
+        if (hasUnique(UniqueType.BuildImprovements))
+            yield(RejectionReasonType.Unbuildable.toInstance("Workers replaced by gold-purchased improvements"))
 
         if ((civ.isCityState || civ.isOneCityChallenger()) && hasUnique(UniqueType.FoundCity, GameContext.IgnoreConditionals))
             yield(RejectionReasonType.NoSettlerForOneCityPlayers.toInstance())

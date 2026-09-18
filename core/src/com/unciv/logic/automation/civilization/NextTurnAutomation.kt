@@ -72,6 +72,13 @@ object NextTurnAutomation {
         } else if (civInfo.isCityState) {
             civInfo.cityStateFunctions.getFreeTechForCityState()
             civInfo.cityStateFunctions.updateDiplomaticRelationshipForCityState()
+            // TW v2 — Periodic free infrastructure: city-states have no worker-equivalent income
+            // to spend, so the public-works dispatch grants a free improvement every 30 turns and
+            // a free pillage repair every 10 turns. Keeps their territory visibly developed without
+            // relying on a small treasury they typically burn on garrison units.
+            val turn = civInfo.gameInfo.turns
+            if (turn > 0 && turn % 30 == 0) ImprovementPurchaseAutomation.grantFreeImprovement(civInfo)
+            if (turn > 0 && turn % 10 == 0) ImprovementPurchaseAutomation.grantFreeRepair(civInfo)
         }
 
         chooseTechToResearch(civInfo)
@@ -215,10 +222,14 @@ object NextTurnAutomation {
     }
 
     private fun protectCityStates(civInfo: Civilization) {
+        // TW v2 — Don't blanket-pledge protection to every CS. Only protect those we
+        // already have a real stake in (≥ Friend relationship): otherwise CS stay
+        // available as legitimate conquest targets for ambitious civs.
         for (state in civInfo.getKnownCivs().filter { !it.isDefeated() && it.isCityState }) {
+            val diplo = state.getDiplomacyManager(civInfo) ?: continue
+            if (!diplo.isRelationshipLevelGE(RelationshipLevel.Friend)) continue
             if (state.cityStateFunctions.otherCivCanPledgeProtection(civInfo))
-                state.cityStateFunctions.addProtectorCiv(civInfo) 
-            //Always pledge to protect, as it makes it harder for others to demand tribute, and grants +10 resting Influence
+                state.cityStateFunctions.addProtectorCiv(civInfo)
         }
     }
 

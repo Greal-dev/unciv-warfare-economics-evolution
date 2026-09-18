@@ -75,6 +75,10 @@ class MapUnit : IsPartOfGameInfoSerialization {
     var automatedRoadConnectionPath: List<HexCoord>? = null
 
     var attacksThisTurn = 0
+
+    /** TW v2 — Count of paid HP-restore actions used on this unit during the current turn.
+     *  Cap is 2 per turn. Cleared in UnitTurnManager.startTurn. */
+    var restoreCountThisTurn: Int = 0
     var promotions = UnitPromotions()
 
     /** Indicates if unit should be located with 'next unit' action */
@@ -124,6 +128,12 @@ class MapUnit : IsPartOfGameInfoSerialization {
 
     /** Territorial Warfare: combat bonus from kills. +5% per kill, decays -1% per turn */
     var killBonus = 0f
+
+    /** TW v2: turns this unit has been garrisoned on a culturally hostile tile (friendly share < 70%).
+     *  After 15 such turns, the unit starts taking attrition damage (up to 30 HP/turn) unless the
+     *  civilization can pay a maintenance subsidy to suppress it. Reset to 0 when the unit moves or
+     *  when local friendly share recovers above 70%. */
+    var garrisonStressTurns: Int = 0
 
     //endregion
     //region Transient fields
@@ -585,6 +595,9 @@ class MapUnit : IsPartOfGameInfoSerialization {
 
     @Readonly
     fun getDamageFromTerrain(tile: Tile = currentTile): Int {
+        // TW v2: a maintained road turns an impassable mountain into a sheltered pass — units crossing
+        // or holding a roaded mountain no longer suffer its terrain attrition (e.g. the 50 HP/turn).
+        if (tile.isImpassible() && tile.getUnpillagedRoad() != com.unciv.logic.map.tile.RoadStatus.None) return 0
         return tile.allTerrains.sumOf { it.damagePerTurn }
     }
 
@@ -970,15 +983,15 @@ class MapUnit : IsPartOfGameInfoSerialization {
 
         // Territorial Warfare: military units claim neutral/enemy territory (only during actual movement)
         // Embarked land units cannot claim water tiles
-        // Naval units cannot claim neutral water tiles; can only capture water tiles within 3 of a friendly city
+        // Naval units cannot claim neutral water tiles; can only capture water tiles within 4 of a friendly city
         val canClaimThisTile = !(tile.isWater && isEmbarked())
         if (isActualMovement && isMilitary() && !tile.isCityCenter() && civ.cities.isNotEmpty() && canClaimThisTile) {
             val tileOwner = tile.getOwner()
             if (tileOwner == null) {
                 // TW: Claim ALL neutral tiles traversed, not just the first
-                // Naval: only within 3 tiles of a friendly city
+                // Naval: only within 4 tiles of a friendly city
                 val canClaimNeutral = if (tile.isWater) {
-                    civ.cities.any { it.getCenterTile().aerialDistanceTo(tile) <= 3 }
+                    civ.cities.any { it.getCenterTile().aerialDistanceTo(tile) <= 4 }
                 } else true
 
                 if (canClaimNeutral) {
@@ -989,9 +1002,9 @@ class MapUnit : IsPartOfGameInfoSerialization {
                 }
             } else if (tileOwner != null && civ.isAtWarWith(tileOwner)) {
                 // On land: capture enemy tile - costs 10 HP
-                // On water: only within 3 tiles of a friendly city
+                // On water: only within 4 tiles of a friendly city
                 val canCapture = if (tile.isWater) {
-                    civ.cities.any { it.getCenterTile().aerialDistanceTo(tile) <= 3 }
+                    civ.cities.any { it.getCenterTile().aerialDistanceTo(tile) <= 4 }
                 } else true
 
                 if (canCapture) {

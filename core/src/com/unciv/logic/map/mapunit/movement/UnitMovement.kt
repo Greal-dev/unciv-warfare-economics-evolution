@@ -758,9 +758,15 @@ class UnitMovement(val unit: MapUnit) {
     @Readonly
     fun canPassThrough(tile: Tile, includeOtherEscortUnit: Boolean = true): Boolean {
         if (tile.isImpassible()) {
-            // special exception - ice tiles are technically impassible, but some units can move through them anyway
-            // helicopters can pass through impassable tiles like mountains
-            if (!unit.cache.canPassThroughImpassableTiles && !(unit.cache.canEnterIceTiles && tile.terrainFeatures.contains(Constants.ice))
+            // TW v2: a road turns an impassable mountain into a passable pass. Any unit may cross a
+            // roaded mountain. Worker-type units may also enter a bare mountain (no road yet) so they
+            // can build the pass there in the first place — without this the feature can't bootstrap.
+            val isRoadedPass = tile.getUnpillagedRoad() != com.unciv.logic.map.tile.RoadStatus.None
+            val canBuildPassHere = unit.cache.hasUniqueToBuildImprovements && !unit.baseUnit.isWaterUnit
+            if (!isRoadedPass && !canBuildPassHere
+                // special exception - ice tiles are technically impassible, but some units can move through them anyway
+                // helicopters can pass through impassable tiles like mountains
+                && !unit.cache.canPassThroughImpassableTiles && !(unit.cache.canEnterIceTiles && tile.terrainFeatures.contains(Constants.ice))
                 // carthage-like uniques sometimes allow passage through impassible tiles
                 && !(unit.civ.passThroughImpassableUnlocked && unit.civ.passableImpassables.contains(tile.lastTerrain.name)))
                 return false

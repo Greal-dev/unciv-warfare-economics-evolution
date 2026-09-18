@@ -91,6 +91,32 @@ class CityFounder {
             }
         }
 
+        // TW v2: When founding the CAPITAL, seed each neighbouring tile at 90% founder
+        // culture + 10% of the previous local mix. Gives the new civ a real ethno-cultural
+        // core from turn 1 instead of a bare central tile in a barbarian sea.
+        if (city.isOriginalCapital) {
+            for (neighbor in tile.neighbors) {
+                val previous = HashMap<String, Float>(neighbor.cultureMap)
+                neighbor.cultureMap.clear()
+                neighbor.cultureMap[founderName] = 0.90f
+                val prevSum = previous.values.sum()
+                if (prevSum > 0f) {
+                    for ((civName, share) in previous) {
+                        neighbor.cultureMap[civName] = (neighbor.cultureMap[civName] ?: 0f) +
+                            (share / prevSum) * 0.10f
+                    }
+                } else {
+                    neighbor.cultureMap["Barbarians"] = 0.10f
+                }
+                val nTotal = neighbor.cultureMap.values.sum()
+                if (nTotal > 0f) {
+                    for (entry in neighbor.cultureMap.entries) {
+                        entry.setValue(entry.value / nTotal)
+                    }
+                }
+            }
+        }
+
         for (terrainFeature in tile.terrainFeatures.filter {
             city.getRuleset().tileImprovements.containsKey(
                 "Remove $it"

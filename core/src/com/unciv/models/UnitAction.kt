@@ -189,6 +189,8 @@ enum class UnitActionType(
         { ImageGetter.getUnitActionPortrait("ConstructImprovement") }, false),
     Repair(Constants.repair,
         { ImageGetter.getUnitActionPortrait("Repair") }, UncivSound.Construction),
+    RestoreUnit("Restore unit",
+        { ImageGetter.getUnitActionPortrait("Repair") }, false, UncivSound.Construction),
     CreateImprovement("Create",
         null, false, UncivSound.Chimes),
     HurryResearch("{Hurry Research} (${Fonts.death})",
@@ -223,6 +225,8 @@ enum class UnitActionType(
         { ImageGetter.getUnitActionPortrait("HideMore") }, false, defaultPage = 1),
     AddInCapital( "Add in capital",
         { ImageGetter.getUnitActionPortrait("AddInCapital")}, UncivSound.Chimes),
+    JoinCity("Join city (+1 population)",
+        { ImageGetter.getUnitActionPortrait("AddInCapital") }, UncivSound.Chimes),
     ;
 
     // Allow shorter initializations

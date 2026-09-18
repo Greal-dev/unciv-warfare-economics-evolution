@@ -156,6 +156,19 @@ class BarbarianAutomation(val civInfo: Civilization) {
     }
 
     private fun automateCombatUnit(unit: MapUnit) {
+        val crisisActive = com.unciv.logic.map.TileCultureLogic
+            .isGlobalCrisisActive(civInfo.gameInfo)
+
+        // TW v2 — Crisis raids: barbs pillage with single-minded focus during a crisis.
+        // They forgo upgrades and combat to push deep and burn improvements.
+        if (crisisActive) {
+            while (UnitAutomation.tryPillageImprovement(unit)) {
+                if (!unit.hasMovement()) return
+            }
+            if (tryRaidImprovement(unit)) return
+            // Fall through to normal logic if no raid target reachable.
+        }
+
         // 1 - Try pillaging to restore health (barbs don't auto-heal)
         if (unit.health < 50 && UnitAutomation.tryPillageImprovement(unit, true) && !unit.hasMovement()) return
 
@@ -181,6 +194,29 @@ class BarbarianAutomation(val civInfo: Civilization) {
 
         // 6 - wander
         UnitAutomation.wander(unit)
+    }
+
+    /** TW v2 — Crisis raid mode: head straight toward the nearest unpillaged
+     *  improvement in foreign territory. Single-mindedly burn the countryside. */
+    private fun tryRaidImprovement(unit: MapUnit): Boolean {
+        if (!unit.hasMovement()) return false
+        val searchRadius = 10
+        val current = unit.currentTile
+        val target = current.getTilesInDistance(searchRadius)
+            .filter { tile ->
+                val owner = tile.getOwner()
+                owner != null && !owner.isBarbarian
+                    && !tile.isCityCenter()
+                    && !tile.isWater
+                    && !tile.isImpassible()
+                    && (tile.improvement != null && !tile.improvementIsPillaged
+                        || tile.roadStatus != com.unciv.logic.map.tile.RoadStatus.None
+                            && !tile.roadIsPillaged)
+                    && unit.movement.canReach(tile)
+            }
+            .minByOrNull { current.aerialDistanceTo(it) } ?: return false
+        unit.movement.headTowards(target)
+        return true
     }
 
     /**

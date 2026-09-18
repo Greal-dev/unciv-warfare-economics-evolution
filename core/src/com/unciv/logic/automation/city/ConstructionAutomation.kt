@@ -157,12 +157,33 @@ class ConstructionAutomation(val cityConstructions: CityConstructions) {
     }
 
     private fun addMilitaryUnitChoice() {
-        if (!isAtWar && !cityIsOverAverageProduction) return // don't make any military units here. Infrastructure first!
-        // There is a risk however, that these cities run out of things to build, and start to construct nothing
-        if (civInfo.stats.getUnitSupplyDeficit() > 0) return // we don't want more units if it's already hurting our empire
-        // todo: add worker disbandment and consumption of great persons if under attack & short on unit supply
-        if (!isAtWar && (civInfo.stats.statsForNextTurn.gold < 0 || militaryUnits > max(7, cities * 5))) return
-        if (civInfo.gold < -50) return
+        if (city.isColony) return  // TW v2: colonies don't train military units
+
+        // TW v2 — Cities must always have a garrison.
+        //   - City-states: militarised; ungarrisoned → 10× priority and bypass infra gates.
+        //   - Major-civ AIs: same rule (user-requested). Humans manage their own units.
+        // When the city center already has a military unit, normal infra-first gating applies
+        // and city-states still get a generic 2× militarism boost.
+        val isCityState = civInfo.isCityState
+        val isUngarrisoned = city.getCenterTile().militaryUnit == null
+        val needsGarrison = isUngarrisoned && (isCityState || civInfo.isAI())
+
+        val nextTurnGold = civInfo.stats.statsForNextTurn.gold
+        val currentGold = civInfo.gold
+
+        if (!needsGarrison) {
+            if (!isAtWar && !cityIsOverAverageProduction) return // don't make any military units here. Infrastructure first!
+            if (civInfo.stats.getUnitSupplyDeficit() > 0) return // we don't want more units if it's already hurting our empire
+            if (!isAtWar && (nextTurnGold < 0 || militaryUnits > max(7, cities * 5))) return
+            if (currentGold < -50) return
+        }
+
+        // TW v2 — Hard budget gate, applies EVEN to needsGarrison cities. A civ that is genuinely
+        // out of money cannot afford to keep producing military units, garrison-requirement or not.
+        // Without this gate AI civs spiral into permanent bankruptcy (observed in the first dry-run
+        // where Songhai stayed at -178 gold for 50+ turns while still spamming units).
+        if (currentGold < -200 && nextTurnGold < 0) return  // approaching sovereign default — freeze military build
+        if (currentGold < -100 && nextTurnGold < -20) return // deep deficit — same
 
         val militaryUnit = Automation.chooseMilitaryUnit(city, units) ?: return
         val unitsToCitiesRatio = cities.toFloat() / (militaryUnits + 1)
@@ -180,6 +201,19 @@ class ConstructionAutomation(val cityConstructions: CityConstructions) {
 
         if (!civInfo.isAIOrAutoPlaying()) modifier /= 2 // Players prefer to make their own unit choices usually
         modifier *= personality.modifierFocus(PersonalityValue.Military, .3f)
+
+        // TW v2 — City-state militarism: ungarrisoned CS forces max priority, otherwise 2×.
+        if (needsGarrison) modifier *= 10f
+        else if (isCityState) modifier *= 2f
+
+        // TW v2 — Soft budget penalty: projected income negativity scales down military priority,
+        // so cash-strapped AIs lean toward infrastructure or workers instead of spamming units.
+        // Curve: deficit -10 → ×0.9; -25 → ×0.75; -50 → ×0.5; floored.
+        if (nextTurnGold < 0) {
+            val deficit = (-nextTurnGold).coerceAtMost(50f)
+            modifier *= (1f - deficit / 100f).coerceAtLeast(0.5f)
+        }
+
         addChoice(relativeCostEffectiveness, militaryUnit, modifier)
     }
 

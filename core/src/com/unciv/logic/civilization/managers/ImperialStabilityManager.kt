@@ -4,7 +4,11 @@ import com.unciv.logic.city.managers.CityConquestFunctions
 import com.unciv.logic.civilization.Civilization
 import com.unciv.logic.civilization.Notification.NotificationCategory
 import com.unciv.logic.civilization.PlayerType
+import com.unciv.logic.civilization.diplomacy.DeclareWarReason
+import com.unciv.logic.civilization.diplomacy.DiplomacyFlags
+import com.unciv.logic.civilization.diplomacy.DiplomaticModifiers
 import com.unciv.logic.civilization.diplomacy.DiplomaticStatus
+import com.unciv.logic.civilization.diplomacy.WarType
 import yairm210.purity.annotations.Readonly
 import kotlin.random.Random
 
@@ -87,10 +91,17 @@ class ImperialStabilityManager(val civInfo: Civilization) {
 
         // === Negative factors ===
 
-        // Over-expansion: -1 per city beyond 3 + eraNumber
-        val maxComfortableCities = 3 + civInfo.getEraNumber()
-        val excessCities = civInfo.cities.size - maxComfortableCities
-        if (excessCities > 0) breakdown["Over-expansion"] = -excessCities.toFloat()
+        // Over-expansion (TW v2): only undeveloped cities count, threshold and slope softened.
+        // A city is "developed" if at least 60% of its owned tiles are improved (and not pillaged),
+        // so geographic empires that actually invest in their territory aren't penalized for size alone.
+        val maxComfortableCities = 5 + (1.5f * civInfo.getEraNumber()).toInt()
+        val undevelopedCities = civInfo.cities.count { city ->
+            val owned = city.getTiles().toList()
+            if (owned.isEmpty()) true
+            else owned.count { it.improvement != null && !it.improvementIsPillaged } < owned.size * 0.6f
+        }
+        val excessUndeveloped = undevelopedCities - maxComfortableCities
+        if (excessUndeveloped > 0) breakdown["Over-expansion (undeveloped)"] = excessUndeveloped * -0.5f
 
         // Recent conquests (<10 turns): -3 per city
         val recentConquests = civInfo.cities.count {
@@ -102,12 +113,30 @@ class ImperialStabilityManager(val civInfo: Civilization) {
         val resistingCities = civInfo.cities.count { it.isInResistance() }
         if (resistingCities > 0) breakdown["Cities in resistance"] = resistingCities * -5f
 
-        // Distant cities (>15 tiles from capital): -1 per city
+        // Distant cities (>15 tiles from capital): -1 per city, mitigated by trade-route connection.
+        // A road/railroad/harbor link to the capital represents the imperial logistics that
+        // historically held large empires together (Roman roads, Trans-Siberian, ...).
         val capitalTile = capital.getCenterTile()
         val distantCities = civInfo.cities.count {
-            it != capital && it.getCenterTile().aerialDistanceTo(capitalTile) > 15
+            it != capital
+                && it.getCenterTile().aerialDistanceTo(capitalTile) > 15
+                && !it.isConnectedToCapital()
         }
-        if (distantCities > 0) breakdown["Distant cities"] = -distantCities.toFloat()
+        if (distantCities > 0) breakdown["Distant unconnected cities"] = -distantCities.toFloat()
+
+        // Territory development index (TW v2): rewards investing Workers in your territory,
+        // counter-balances the lighter over-expansion malus by punishing under-development.
+        val totalOwnedTiles = civInfo.cities.sumOf { it.getTiles().count() }
+        if (totalOwnedTiles > 0) {
+            val improvedTiles = civInfo.cities.sumOf { city ->
+                city.getTiles().count { it.improvement != null && !it.improvementIsPillaged }
+            }
+            val devRatio = improvedTiles.toFloat() / totalOwnedTiles
+            when {
+                devRatio > 0.7f -> breakdown["Well-developed territory"] = 5f
+                devRatio < 0.4f -> breakdown["Underdeveloped territory"] = -5f
+            }
+        }
 
         // Gold deficit: -3 if gold/turn < 0
         if (goldPerTurn < 0) breakdown["Gold deficit"] = -3f
@@ -190,9 +219,15 @@ class ImperialStabilityManager(val civInfo: Civilization) {
         gameInfo.civilizations.add(rebelCiv)
         rebelCiv.setNationTransient()
 
-        // Copy tech and policies
+        // Copy tech and policies BEFORE setTransients() — otherwise setTransients wires
+        // civInfo into the original tech/policies, which we then overwrite with clones
+        // whose own civInfo lateinit is still uninitialized → crash on next stats update.
         rebelCiv.tech = civInfo.tech.clone()
         rebelCiv.policies = civInfo.policies.clone()
+
+        // CivConstructions.civInfo + tech.civInfo + policies.civInfo lateinit fields all
+        // get wired up here. Must run AFTER any clone-assignment above.
+        rebelCiv.setTransients()
 
         // Proportional gold split
         val totalCities = civInfo.cities.size
@@ -382,5 +417,101 @@ class ImperialStabilityManager(val civInfo: Civilization) {
     @Readonly fun getRenaissanceBonusPercent(): Float {
         if (civInfo.renaissanceTurnsRemaining <= 0) return 0f
         return 25f * civInfo.renaissanceTurnsRemaining / 15f
+    }
+
+    /**
+     * TW v2 — Hegemony threat: when one civ has more military power than the rest
+     * of the world COMBINED, the world reacts diplomatically and militarily.
+     *
+     *  ratio = myForce / sumOfOthersForce  (RankingType.Force = military strength)
+     *
+     *  ratio ≥ 0.30 : -2  modifier ("they're the strongest")
+     *  ratio ≥ 0.50 : -10 modifier ("their army rivals half the world")
+     *  ratio ≥ 0.70 : -30 modifier ("their army eclipses most of us")
+     *  ratio ≥ 1.00 : -50 modifier AND coalition war
+     *                  ("their army outweighs all of us combined — true hegemony")
+     *
+     *  This runs at the start of every major civ's turn.
+     */
+    fun checkHegemonyThreat() {
+        if (!civInfo.isMajorCiv() || civInfo.isDefeated() || civInfo.cities.isEmpty()) return
+
+        val others = civInfo.gameInfo.civilizations.filter {
+            it.isMajorCiv() && !it.isDefeated() && it != civInfo && it.cities.isNotEmpty()
+        }
+        if (others.isEmpty()) return
+
+        val myForce = civInfo.getStatForRanking(com.unciv.ui.screens.victoryscreen.RankingType.Force).toDouble()
+        val maxOtherForce = others.maxOfOrNull {
+            it.getStatForRanking(com.unciv.ui.screens.victoryscreen.RankingType.Force).toDouble()
+        } ?: 0.0
+        // Hegemony only applies to the single most powerful civ — civs simply above
+        // average are not penalised.
+        val isWorldLeader = myForce > maxOtherForce
+
+        // Always clear stale modifiers on every other civ first; we'll re-apply on the leader.
+        for (otherCiv in others) {
+            otherCiv.getDiplomacyManager(civInfo)?.removeModifier(DiplomaticModifiers.HegemonyThreat)
+        }
+
+        if (!isWorldLeader) return
+
+        val sumOthersForce = others.sumOf {
+            it.getStatForRanking(com.unciv.ui.screens.victoryscreen.RankingType.Force).toDouble()
+        }
+        if (sumOthersForce <= 0.0) return
+
+        val ratio = (myForce / sumOthersForce).toFloat()
+
+        val penalty = when {
+            ratio >= 1.00f -> -50f
+            ratio >= 0.70f -> -30f
+            ratio >= 0.50f -> -10f
+            ratio >= 0.30f -> -2f
+            else -> 0f
+        }
+
+        if (penalty == 0f) return
+
+        for (otherCiv in others) {
+            if (!otherCiv.knows(civInfo)) continue
+            val dipl = otherCiv.getDiplomacyManager(civInfo) ?: continue
+            dipl.setModifier(DiplomaticModifiers.HegemonyThreat, penalty)
+        }
+
+        // Coalition war: only when one civ outweighs the rest of the world combined.
+        // Eligibility honours diplomatic cooldowns and exempts the human player —
+        // forced declarations on the player would silently drag them into wars
+        // (and into wars with the leader's CS allies) without consent.
+        if (ratio >= 1.00f) {
+            val attackers = others.filter { otherCiv ->
+                if (otherCiv.isHuman()) return@filter false  // never force the human player
+                if (!otherCiv.knows(civInfo)) return@filter false
+                if (otherCiv.isAtWarWith(civInfo)) return@filter false
+                if (otherCiv.cities.isEmpty()) return@filter false
+                val attackerDipl = otherCiv.getDiplomacyManager(civInfo) ?: return@filter false
+                // Active peace treaty: the trade carries a duration that locks both sides out of war
+                if (attackerDipl.turnsToPeaceTreaty() > 0) return@filter false
+                if (attackerDipl.otherCivDiplomacy().turnsToPeaceTreaty() > 0) return@filter false
+                // DeclaredWar flag: 10-turn cooldown after the previous war declaration
+                if (attackerDipl.hasFlag(DiplomacyFlags.DeclaredWar)) return@filter false
+                if (attackerDipl.otherCivDiplomacy().hasFlag(DiplomacyFlags.DeclaredWar)) return@filter false
+                true
+            }.toList()  // snapshot — declareWar mutates diplomacy state
+            for (attacker in attackers) {
+                val attackerDipl = attacker.getDiplomacyManager(civInfo) ?: continue
+                attackerDipl.declareWar(DeclareWarReason(WarType.DirectWar))
+                attacker.addNotification(
+                    "[${civInfo.civName}]'s overwhelming dominance forces us into war!",
+                    NotificationCategory.Diplomacy
+                )
+            }
+            if (attackers.isNotEmpty()) {
+                civInfo.addNotification(
+                    "A coalition of [${attackers.size}] civilizations has declared war to break our hegemony!",
+                    NotificationCategory.Diplomacy
+                )
+            }
+        }
     }
 }

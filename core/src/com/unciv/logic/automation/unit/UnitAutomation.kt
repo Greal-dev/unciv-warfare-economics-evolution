@@ -89,12 +89,21 @@ object UnitAutomation {
 
         if (tryTakeBackCapturedCity(unit)) return
 
+        // TW v2 — Financial retreat: when the civ is in negative gold AND projected income
+        // is also negative, recall far-from-home units to cut distance-based maintenance.
+        // The deeper the deficit, the closer the recall threshold (mild trouble = only the
+        // very far units retreat; deep deficit = even mid-range units come home).
+        if (tryFinancialRetreat(unit)) return
+
+        // TW v2 — Garrison comes BEFORE long-distance offensive marches. The sole
+        // defender of any own city stays put; a unit elsewhere prefers heading to an
+        // ungarrisoned own city over an enemy city. Cities must stay protected.
+        if (tryGarrisoningLandUnit(unit)) return
+
         // Focus all units without a specific target on the enemy city closest to one of our cities
         if (HeadTowardsEnemyCityAutomation.tryHeadTowardsEnemyCity(unit)) return
 
         if (tryHeadTowardsEncampment(unit)) return
-
-        if (tryGarrisoningLandUnit(unit)) return
 
         if (unit.health < 80 && tryHealUnit(unit)) return
 
@@ -621,6 +630,43 @@ object UnitAutomation {
         return false
     }
 
+    /** TW v2 — Recall a unit toward the nearest own city when the civ is broke AND
+     *  projected income is negative. Distance-based unit maintenance is the usual culprit
+     *  in offensive over-extension; pulling far-out units home restores positive cash flow.
+     *
+     *  Recall threshold scales with the severity of the deficit so the AI doesn't abandon
+     *  the front for a minor gold dip:
+     *    gold ≤ −200  → units >  4 tiles away retreat
+     *    gold ≤ −50   → units >  7 tiles away retreat
+     *    otherwise    → units > 12 tiles away retreat (mild trouble) */
+    private fun tryFinancialRetreat(unit: MapUnit): Boolean {
+        val civ = unit.civ
+        if (!civ.isAtWar()) return false
+        if (civ.cities.isEmpty()) return false
+        val nextGold = civ.stats.statsForNextTurn.gold.toInt()
+        // Only retreat when both current AND projected gold are problematic.
+        if (civ.gold > 50 && nextGold >= 0) return false
+        if (nextGold >= 0 && civ.gold > -50) return false
+
+        val unitTile = unit.currentTile
+        val nearestCityTile = civ.cities.minByOrNull {
+            it.getCenterTile().aerialDistanceTo(unitTile)
+        }?.getCenterTile() ?: return false
+        val dist = nearestCityTile.aerialDistanceTo(unitTile)
+
+        val threshold = when {
+            civ.gold <= -200 -> 4
+            civ.gold <= -50 -> 7
+            else -> 12
+        }
+        if (dist <= threshold) return false
+        if (unitTile.position == nearestCityTile.position) return false
+        if (!unit.movement.canReach(nearestCityTile)) return false
+
+        unit.movement.headTowards(nearestCityTile)
+        return true
+    }
+
     private fun tryGarrisoningLandUnit(unit: MapUnit): Boolean {
         if (unit.baseUnit.isWaterUnit) return false // Water units don't count for Garrison bonus
         val citiesWithoutGarrison = unit.civ.cities.filter {
@@ -629,12 +675,18 @@ object UnitAutomation {
                     && unit.movement.canMoveTo(centerTile)
         }
 
+        // TW v2 — Sole defender of one of our own city centers always stays put,
+        // peacetime OR wartime. The AI must NOT leave a city ungarrisoned to chase
+        // far-off offensives; if it wants to attack, it has to build more units first.
+        if (unit.getTile().isCityCenter() && unit.getTile().getCity()?.civ == unit.civ) {
+            val otherDefender = unit.getTile().getUnits()
+                .any { it != unit && !it.isCivilian() }
+            if (!otherDefender) return true
+        }
+
         val citiesToTry = if (!unit.civ.isAtWar()) {
-            if (unit.getTile().isCityCenter()) return true // It's always good to have a unit in the city center, so if you haven't found anyone around to attack, forget it.
             citiesWithoutGarrison.asSequence()
         } else {
-            if (unit.getTile().isCityCenter() &&
-                    isCityThatNeedsDefendingInWartime(unit.getTile().getCity()!!)) return true
             val citiesWithoutGarrisonThatNeedDefending = citiesWithoutGarrison.asSequence()
                     .filter { isCityThatNeedsDefendingInWartime(it) }
             if (citiesWithoutGarrisonThatNeedDefending.any()) citiesWithoutGarrisonThatNeedDefending

@@ -88,6 +88,7 @@ class MapEditorScreen(map: TileMap? = null) : BaseScreen(), RecreateOnResize {
     val tabs: MapEditorMainTabs
     var tileClickHandler: ((tile: Tile)->Unit)? = null
     private var zoomController: ZoomButtonPair? = null
+    private var minimap: MapEditorMinimap? = null
     val descriptionTextField = UncivTextField("Enter a description for the users of this map")
 
     private val highlightedTileGroups = mutableListOf<TileGroup>()
@@ -232,6 +233,15 @@ class MapEditorScreen(map: TileMap? = null) : BaseScreen(), RecreateOnResize {
             zoomController!!.setPosition(10f, 10f)
             stage.addActor(zoomController)
         }
+
+        // TW v2 — Static minimap, lower-right, lifted above the bottom controls so it
+        // doesn't sit under the tabs drawer. Sized 30% of the smaller stage dimension.
+        minimap?.remove()
+        val targetSize = (stage.width.coerceAtMost(stage.height) * 0.30f).coerceAtLeast(180f)
+        val mm = MapEditorMinimap(newHolder, targetSize)
+        mm.setPosition(stage.width - mm.width - 10f, stage.height * 0.18f)
+        stage.addActor(mm)
+        minimap = mm
 
         return newHolder
     }

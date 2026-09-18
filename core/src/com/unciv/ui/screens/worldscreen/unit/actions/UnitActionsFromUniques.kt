@@ -49,10 +49,18 @@ object UnitActionsFromUniques {
             UniqueType.FoundPuppetCity).firstOrNull() ?: return null
 
         if (tile.isWater || tile.isImpassible()) return null
+        // TW v2 — Cities may be founded side-by-side, even on foreign soil, but never directly
+        // on top of an existing city centre (that tile is occupied by another city).
+        if (tile.isCityCenter()) return null
         // Spain should still be able to build Conquistadors in a one city challenge - but can't settle them
         if (unit.civ.isOneCityChallenger() && unit.civ.hasEverOwnedOriginalCapital) return null
 
-        if (!unit.hasMovement() || !tile.canBeSettled(unit.civ))
+        // TW v2 — Founding on another civ's / city-state's territory is allowed, but it declares
+        // war on the owner (handled below via a confirmation popup). The only reason canBeSettled
+        // now fails is foreign ownership, so when an enemy owner is present we still offer the
+        // action and route it through the war-confirmation flow.
+        val foreignOwner = tile.getOwner()?.takeIf { it != unit.civ && !it.isBarbarian }
+        if (!unit.hasMovement() || (!tile.canBeSettled(unit.civ) && foreignOwner == null))
             return UnitAction(UnitActionType.FoundCity, 80f, action = null)
 
         val hasActionModifiers = unique.modifiers.any { it.type?.targetTypes?.contains(
@@ -73,8 +81,12 @@ object UnitActionsFromUniques {
             }
         }
 
-        if (unit.civ.playerType == PlayerType.AI)
+        // TW v2 — AI never founds on foreign soil (it would suicidally declare war); only the
+        // human player may do so through the explicit confirmation popup.
+        if (unit.civ.playerType == PlayerType.AI) {
+            if (foreignOwner != null) return UnitAction(UnitActionType.FoundCity, 80f, action = null)
             return UnitAction(UnitActionType.FoundCity, 80f, action = foundAction)
+        }
 
         val title =
             if (hasActionModifiers) UnitActionModifiers.actionTextWithSideEffects(
@@ -91,19 +103,37 @@ object UnitActionsFromUniques {
             uncivSound = UncivSound.Chimes,
             associatedUnique = unique,
             action = {
-                // check if we would be breaking a promise
-                val leadersPromisedNotToSettleNear = getLeadersWePromisedNotToSettleNear(unit.civ, tile)
-                if (leadersPromisedNotToSettleNear == null)
-                    foundAction()
-                else {
-                    // ask if we would be breaking a promise
-                    val text = "Do you want to break your promise to [$leadersPromisedNotToSettleNear]?"
+                // TW v2 — Founding on foreign territory: confirm + declare war on the owner first.
+                if (foreignOwner != null) {
+                    val ownerLabel =
+                        if (foreignOwner.isCityState) "the City-State of [${foreignOwner.civName}]"
+                        else "[${foreignOwner.civName}]"
+                    val text = "Founding a city on $ownerLabel's territory will declare war on them. Proceed?"
                     ConfirmPopup(
                         GUI.getWorldScreen(),
                         text,
-                        "Break promise",
-                        action = foundAction
+                        "Declare war and found",
+                        action = {
+                            if (!unit.civ.isAtWarWith(foreignOwner))
+                                unit.civ.getDiplomacyManagerOrMeet(foreignOwner).declareWar()
+                            foundAction()
+                        }
                     ).open(force = true)
+                } else {
+                    // check if we would be breaking a promise
+                    val leadersPromisedNotToSettleNear = getLeadersWePromisedNotToSettleNear(unit.civ, tile)
+                    if (leadersPromisedNotToSettleNear == null)
+                        foundAction()
+                    else {
+                        // ask if we would be breaking a promise
+                        val text = "Do you want to break your promise to [$leadersPromisedNotToSettleNear]?"
+                        ConfirmPopup(
+                            GUI.getWorldScreen(),
+                            text,
+                            "Break promise",
+                            action = foundAction
+                        ).open(force = true)
+                    }
                 }
             }.takeIf { UnitActionModifiers.canActivateSideEffects(unit, unique) }
         )
@@ -291,6 +321,25 @@ object UnitActionsFromUniques {
                 tile.isCityCenter() && tile.getCity()!!
                     .isCapital() && tile.getCity()!!.civ == unit.civ
             }
+        ))
+    }
+
+    /**
+     * TW v2: Settlers and Workers can disband into a friendly city center to add +1 population.
+     * Settlers are obvious civilian colonizers; Workers represent labour returning to the city.
+     */
+    internal fun getJoinCityActions(unit: MapUnit, tile: Tile): Sequence<UnitAction> {
+        val canJoin = unit.hasUnique(UniqueType.FoundCity) || unit.hasUnique(UniqueType.BuildImprovements)
+        if (!canJoin) return emptySequence()
+        val city = tile.getCity()
+        val isOwnCityCenter = tile.isCityCenter() && city != null && city.civ == unit.civ
+        return sequenceOf(UnitAction(UnitActionType.JoinCity,
+            title = "Join city (+1 population)",
+            useFrequency = 70f,
+            action = {
+                city!!.population.addPopulation(1)
+                unit.destroy()
+            }.takeIf { isOwnCityCenter }
         ))
     }
 

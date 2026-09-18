@@ -140,6 +140,15 @@ class WorldMapHolder(
                 && tile.neighbors.all { worldScreen.viewingCiv.hasExplored(it) })
             return // This tile doesn't exist for you
 
+        // TW v2 — Road plan mode hijacks clicks: toggle the tile in/out of the plan and refresh,
+        // skipping unit movement / selection logic entirely.
+        if (com.unciv.logic.map.tile.RoadConnectBuyMode.active
+            && com.unciv.logic.map.tile.RoadConnectBuyMode.civ == worldScreen.viewingCiv) {
+            com.unciv.logic.map.tile.RoadConnectBuyMode.toggleTile(tile)
+            worldScreen.shouldUpdate = true
+            return
+        }
+
         removeUnitActionOverlay()
         selectedTile = tile
         unitMovementPaths.clear()

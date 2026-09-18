@@ -199,6 +199,15 @@ class AlertPopup(
         addQuestionAboutTheCity(city.name)
         val conqueringCiv = gameInfo.getCurrentPlayerCivilization()
 
+        // TW v2 — Direct city-state capture: offer a Subjugate option that spares the CS
+        // and forges an alliance (+500 influence). The vanilla Liberate flow is hidden in
+        // this case (city.civ == foundingCiv at popup time), so without this the only
+        // choices would be Annex / Puppet / Raze — none of which preserve the CS.
+        if (city.civ.isCityState && conqueringCiv != city.civ) {
+            addSubjugateOption(city, conqueringCiv)
+            addSeparator()
+        }
+
         if (city.foundingCivObject != null
                 && city.civ != city.foundingCivObject // can't liberate if the city actually belongs to those guys
                 && conqueringCiv != city.foundingCivObject) { // or belongs originally to us
@@ -617,7 +626,22 @@ class AlertPopup(
         }
         button.keyShortcuts.add('l')
         add(button).row()
-        addGoodSizedLabel("Liberating a city returns it to its original owner, giving you a massive relationship boost with them!")
+        addGoodSizedLabel("Liberating a city returns it to its original owner, giving you a massive relationship boost with them!").row()
+    }
+
+    /** TW v2 — Spare a freshly captured city-state and forge an alliance instead of taking it.
+     *  Shown only when conquering a city still owned by a city-state (i.e. direct CS capture). */
+    private fun addSubjugateOption(city: City, conqueringCiv: Civilization) {
+        val csCiv = city.civ
+        val button = "Subjugate (spare [csName] and forge an alliance, +500 influence)"
+            .fillPlaceholders(csCiv.civName).toTextButton()
+        button.onActivation {
+            city.subjugateCityState(conqueringCiv)
+            close()
+        }
+        button.keyShortcuts.add('s')
+        add(button).row()
+        addGoodSizedLabel("The city-state keeps its city, borders and culture intact, and becomes our ally.").row()
     }
 
     private fun addRazeOption(city: City, mayAnnex: Boolean, conqueringCiv: Civilization) {

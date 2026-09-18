@@ -36,7 +36,9 @@ tasks.register<JavaExec>("run") {
     standardInput = System.`in`
     workingDir = assetsDir
     isIgnoreExitValue = true
-    maxHeapSize = "2G"
+    // TW v2: bumped to 6G — augmented per-tile state (cultureMap, etc.) + autosave clone
+    // can exhaust 2G in late-game saves with many civs.
+    maxHeapSize = "6G"
 }
 
 tasks.register<JavaExec>("debug") {

@@ -272,6 +272,21 @@ class RoadBetweenCitiesAutomation(val civInfo: Civilization, private val cachedF
     }
 
     /**
+     * TW v2 — Workers are gone; the AI now buys roads with gold via the Public Works
+     * system. This method pre-computes road plans for every city of the civ so the
+     * gold-based road-building pass can consume [tilesOfRoadsMap] directly.
+     *
+     * @return The civ-wide map of tile → best [RoadPlan] covering it (own [tilesOfRoadsMap]).
+     */
+    internal fun planAllRoads(): HashMap<Tile, RoadPlan> {
+        if (bestRoadAvailable == RoadStatus.None) return tilesOfRoadsMap
+        for (city in civInfo.cities) {
+            getRoadsToBuildFromCity(city)
+        }
+        return tilesOfRoadsMap
+    }
+
+    /**
      * Most importantly builds the cache so that [WorkerAutomation.chooseImprovement] knows later what tiles a road should be built on.
      *
      * @param unit Civilian unit which may want to connect cities

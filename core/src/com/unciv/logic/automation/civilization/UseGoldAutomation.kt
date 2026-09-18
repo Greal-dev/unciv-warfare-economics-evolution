@@ -34,6 +34,9 @@ object UseGoldAutomation {
             city.cityConstructions.purchaseConstruction(construction, 0, true)
         }
 
+        // TW v2: Workers are gone — AI buys tile improvements directly with gold.
+        ImprovementPurchaseAutomation.automate(civ)
+
         maybeBuyCityTiles(civ)
     }
 

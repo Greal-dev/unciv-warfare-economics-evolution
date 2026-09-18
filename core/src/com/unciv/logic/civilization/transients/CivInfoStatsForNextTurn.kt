@@ -15,10 +15,14 @@ import com.unciv.models.stats.Stat
 import com.unciv.models.stats.StatMap
 import com.unciv.models.stats.Stats
 import com.unciv.ui.components.extensions.toPercent
+import yairm210.purity.annotations.LocalState
 import yairm210.purity.annotations.Readonly
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
+
+/** TW v2: a road on an impassable tile (a mountain pass) costs this many times the normal road upkeep. */
+private const val MOUNTAIN_ROAD_UPKEEP_MULTIPLIER = 10f
 
 /** CivInfo class was getting too crowded */
 class CivInfoStatsForNextTurn(val civInfo: Civilization) {
@@ -52,7 +56,10 @@ class CivInfoStatsForNextTurn(val civInfo: Civilization) {
         }
 
         for (unit in civInfo.units.getCivUnits()) {
-            if (!unit.isMilitary()) continue
+            // TW v2: workers (BuildImprovements) follow the same era-scaled upkeep as military units,
+            // because their cost was divided by 4 — supply now lives in the upkeep, not the build cost.
+            val isWorker = unit.hasUnique(UniqueType.BuildImprovements)
+            if (!unit.isMilitary() && !isWorker) continue
 
             // Era-based maintenance: 1 gold per era (0 in Ancient, 1 in Classical, etc.)
             totalMaintenance += eraMaintenancePerUnit.toFloat()
@@ -78,8 +85,23 @@ class CivInfoStatsForNextTurn(val civInfo: Civilization) {
 
     @Readonly
     private fun getTransportationUpkeep(): Stats {
-        // Territorial Warfare: road maintenance is free
-        return Stats()
+        // TW v2: roads cost gold upkeep (RoadStatus.upkeep — 1 for Road, 2 for Railroad) on owned tiles,
+        // so civs are pushed to mesh efficiently rather than carpet the map. A road on an impassable tile
+        // (a mountain pass) costs 10x as much: keeping an engineered pass open is a heavy, ongoing effort.
+        @LocalState var goldCost = 0f
+        for (city in civInfo.cities) {
+            for (tile in city.getTiles()) {
+                if (tile.isCityCenter()) continue
+                val road = tile.getUnpillagedRoad()
+                if (road == RoadStatus.None) continue
+                goldCost += road.upkeep.toFloat() * (if (tile.isImpassible()) MOUNTAIN_ROAD_UPKEEP_MULTIPLIER else 1f)
+            }
+        }
+        if (goldCost == 0f) return Stats()
+        // Honour maintenance-reduction uniques (e.g. "-25% maintenance on road & railroads").
+        for (unique in civInfo.getMatchingUniques(UniqueType.RoadMaintenance))
+            goldCost *= unique.params[0].toPercent()
+        return Stats(gold = goldCost)
     }
 
     @Readonly
@@ -120,6 +142,21 @@ class CivInfoStatsForNextTurn(val civInfo: Civilization) {
 
     /** Per each supply missing, a player gets -10% production. Capped at -70%. */
     @Readonly fun getUnitSupplyProductionPenalty(): Float = -min(getUnitSupplyDeficit() * 10f, 70f)
+
+    /**
+     * TW v2 — flat science upkeep: each researched technology costs 1% of its science cost
+     * per turn, in science. Models the cumulative complexity of maintaining a science empire
+     * and creates a natural ceiling on tech speed regardless of multiplier stacking.
+     */
+    @Readonly
+    fun getResearchedTechUpkeepCost(): Float {
+        if (civInfo.cities.isEmpty()) return 0f
+        var total = 0f
+        for (techName in civInfo.tech.techsResearched) {
+            total += civInfo.tech.costOfTech(techName).toFloat()
+        }
+        return total * 0.002f  // TW v2: 0.2% upkeep — calibrated so most civs still progress (cf. balance analysis)
+    }
 
     /** Territorial Warfare: tech maintenance — superlinear penalty for being ahead of average.
      *  cost = (excessRatio²) × totalTechs × civScale
@@ -179,6 +216,11 @@ class CivInfoStatsForNextTurn(val civInfo: Civilization) {
         if (techMaintenance > 0f)
             statMap["Tech maintenance"] = Stats(science = -techMaintenance)
 
+        // TW v2: flat 1% science upkeep per researched tech of its science cost
+        val techUpkeep = getResearchedTechUpkeepCost()
+        if (techUpkeep > 0f)
+            statMap["Researched tech upkeep"] = Stats(science = -techUpkeep)
+
         // TW: Happiness bonus is now applied per-city as % bonus in CityStats
         // Old excessHappinessConversion removed
 
@@ -232,6 +274,28 @@ class CivInfoStatsForNextTurn(val civInfo: Civilization) {
         val borderScience = getBorderSciencePorosity()
         if (borderScience > 0f) {
             statMap["Border science exchange"] = Stats(science = borderScience)
+        }
+
+        // TW v2 — Empire science tanh dampening REMOVED.
+        // It compressed every high producer toward the same ~300 ceiling, so all
+        // ratios in the calendar-paced science system collapsed to ~99%. Raw science
+        // now flows through unchanged — the calendar pacing already prevents runaway,
+        // and the ratio dynamic gives a real disadvantage to laggards.
+
+        // TW v2 — Same hyperbolic-tangent dampening on empire-wide gold income.
+        // y = K · tanh(x / K) with K = 3000. Small/mid empires barely touched; runaway
+        // gold (>3000/turn) plateaus aggressively. Calibrated for the post-Banking era
+        // where Markets+Banks+Stock Exchanges + trade routes + tile tax otherwise stack
+        // into 5000+/turn. Negative gold (deficit) passes through tanh symmetrically — a
+        // small reduction of the bleed for very-bankrupt civs.
+        val empireGoldK = 3000.0
+        val rawGold = statMap.values.sumOf { it.gold.toDouble() }
+        if (kotlin.math.abs(rawGold) > 0.5) {
+            val damped = empireGoldK * kotlin.math.tanh(rawGold / empireGoldK)
+            val delta = (damped - rawGold).toFloat()
+            if (kotlin.math.abs(delta) > 0.5f) {
+                statMap["Empire gold dampening"] = Stats(gold = delta)
+            }
         }
 
         return statMap
@@ -332,6 +396,40 @@ class CivInfoStatsForNextTurn(val civInfo: Civilization) {
             // Oh well, toList() should solve the problem, wherever it may come from.
             for ((key, value) in city.cityStats.happinessList.toList())
                 statMap.add(key, value)
+        }
+
+        // TW v2 — Empire-level population unhappiness scaling.
+        //  1. Tanh soft-cap: y = K · tanh(x/K) with K=100. Each citizen still adds to
+        //     the raw total but the empire-wide pressure plateaus near 100.
+        //  2. Cultural homogeneity multiplier: capital's own-culture share scales the
+        //     capped value. 100% homogeneous → 0.5×, 50% → 1.0×, 0% → 1.5×.
+        // The two adjustments together replace the raw "Population" line via a balancing
+        // "Imperial cohesion" entry (positive) or "Cultural fracture" entry (negative).
+        val rawPopUnhappiness = -(statMap["Population"] ?: 0f)
+        if (rawPopUnhappiness > 0.5f) {
+            val K = 100.0
+            val tanhCapped = K * kotlin.math.tanh(rawPopUnhappiness.toDouble() / K)
+            val capital = civInfo.getCapital()
+            val capitalCulture = if (capital != null)
+                com.unciv.logic.map.TileCultureLogic.getFriendlyShare(capital.getCenterTile(), civInfo)
+            else 0.5f
+            val cultMultiplier = (1.5f - capitalCulture).coerceIn(0.5f, 1.5f)
+            val finalUnhappiness = (tanhCapped * cultMultiplier).toFloat()
+            val savings = rawPopUnhappiness - finalUnhappiness   // positive = happiness restored
+            if (savings > 0.5f) statMap["Imperial cohesion"] = savings
+            else if (savings < -0.5f) statMap["Cultural fracture"] = savings
+        }
+
+        // TW v2 — Soft cap on empire-wide POSITIVE happiness surplus. y = K · tanh(x/K)
+        // with K = 100, applied only when the net is > 0. Negative happiness (revolt
+        // territory) passes through raw so that struggling civs feel the pain. Tame the
+        // runaway "luxury × buildings × cohesion" stacks producing absurd +150 surpluses.
+        val happyK = 100.0
+        val netHappy = statMap.values.sum()
+        if (netHappy > 0.5f) {
+            val damped = happyK * kotlin.math.tanh(netHappy.toDouble() / happyK)
+            val delta = (damped - netHappy).toFloat()
+            if (delta < -0.5f) statMap["Happiness saturation"] = delta
         }
 
         val transportUpkeep = getTransportationUpkeep()

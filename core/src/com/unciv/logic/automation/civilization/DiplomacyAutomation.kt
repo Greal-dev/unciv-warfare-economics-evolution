@@ -360,6 +360,11 @@ object DiplomacyAutomation {
         // For mods we can't check the number of cities, so we will check the population instead.
         if (civInfo.cities.sumOf { it.population.population } < 12) return // FAR too early for that what are you thinking!
 
+        // TW v2 — Don't declare war while any home city is ungarrisoned. Forcing the AI
+        // to secure its own perimeter first stops the "war with empty cities" snafu where
+        // the player walks in and takes them unopposed.
+        if (civInfo.cities.any { it.getCenterTile().militaryUnit == null }) return
+
         //evaluate war
         val targetCivs = civInfo.getKnownCivs()
             .filterNot {

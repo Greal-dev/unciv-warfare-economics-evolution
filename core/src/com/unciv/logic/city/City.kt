@@ -85,6 +85,12 @@ class City : IsPartOfGameInfoSerialization, INamed {
      *  At 10+ turns in Modern era+, the city declares independence. */
     var puppetIndependenceTurns: Int = 0
 
+    /** TW v2 — Phase 3: city conquered at Renaissance era+ that has no land connection
+     *  to its new owner's capital. Colonies don't produce military units, project
+     *  local (not national) culture, and generate +50% gold. Set on capture, cleared
+     *  if a land road link to the capital later opens up. */
+    var isColony: Boolean = false
+
     var population = CityPopulationManager()
     var cityConstructions = CityConstructions()
     var expansion = CityExpansionManager()
@@ -107,6 +113,11 @@ class City : IsPartOfGameInfoSerialization, INamed {
     var manualSpecialists = false
     var isBeingRazed = false
     var attackedThisTurn = false
+
+    /** TW v2 — Siege counter. Increments while every (non-impassable) neighbor of the
+     *  city center is enemy-controlled. At 3 the city surrenders to the besieger.
+     *  Resets to 0 the moment any neighbor is friendly or unoccupied. */
+    var siegeTurns: Int = 0
     var hasSoldBuildingThisTurn = false
     var isPuppet = false
     var shouldReassignPopulation = false  // flag so that on startTurn() we reassign population
@@ -205,7 +216,9 @@ class City : IsPartOfGameInfoSerialization, INamed {
         return toReturn
     }
 
-    @Readonly fun canBombard() = !attackedThisTurn && !isInResistance()
+    // TW v2 — Cities are purely defensive: no bombardment. The garrison defends the city,
+    // not the city itself. Removes the unrealistic "magic city arrow" Civ V mechanic.
+    @Readonly fun canBombard() = false
     @Readonly fun getCenterTile(): Tile = centerTile
     @Readonly fun getCenterTileOrNull(): Tile? = if (::centerTile.isInitialized) centerTile else null
     @Readonly fun getTiles(): Sequence<Tile> = tiles.asSequence().map { tileMap[it] }
@@ -218,7 +231,24 @@ class City : IsPartOfGameInfoSerialization, INamed {
     @Readonly fun isNaval(): Boolean = centerTile.isWater || isCoastal()
     
     @Readonly fun getBombardRange(): Int = civ.gameInfo.ruleset.modOptions.constants.baseCityBombardRange
-    @Readonly fun getWorkRange(): Int = civ.gameInfo.ruleset.modOptions.constants.cityWorkRange
+    /**
+     * TW v2 — era-progressive city working radius. Mirrors real urbanisation patterns:
+     * dense small settlements early, megacities reaching far in the modern age.
+     *
+     *  Ancient + Classical (era 0-1) : 2 — tight grip, encourages many close cities
+     *  Medieval + Renaissance (2-3) : 3 — vanilla baseline
+     *  Industrial onwards (4+)      : 4 — megacities project further, consolidation pays off
+     *
+     *  `tilesInRange` is recomputed at every city startTurn so era changes take effect.
+     */
+    @Readonly fun getWorkRange(): Int {
+        val era = civ.getEraNumber()
+        return when {
+            era <= 1 -> 2
+            era <= 3 -> 3
+            else -> 4
+        }
+    }
     @Readonly fun getExpandRange(): Int = civ.gameInfo.ruleset.modOptions.constants.cityExpandRange
 
     @Readonly
@@ -505,8 +535,16 @@ class City : IsPartOfGameInfoSerialization, INamed {
     fun liberateCity(conqueringCiv: Civilization) =
         CityConquestFunctions(this).liberateCity(conqueringCiv)
 
+    /** TW v2 — Subjugate a freshly captured city-state: spare it and forge an alliance
+     *  (+500 influence) instead of taking the city. Borders and culture remain intact. */
+    fun subjugateCityState(conqueringCiv: Civilization) =
+        CityConquestFunctions(this).subjugateCityState(conqueringCiv)
+
     fun moveToCiv(newCivInfo: Civilization) =
         CityConquestFunctions(this).moveToCiv(newCivInfo)
+
+    fun grantIndependenceAsCityState() =
+        CityConquestFunctions(this).grantIndependenceAsCityState()
 
     internal fun tryUpdateRoadStatus() {
         val requiredRoad = when{

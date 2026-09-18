@@ -754,9 +754,13 @@ object Battle {
         }
 
         city.puppetCity(civInfo)
-        if ((city.population.population < 4 || civInfo.isCityState)
+        // TW v2 — City-states no longer auto-raze every city they take: they keep the first few
+        // and try to build a 2-3 city polity (Carthage, Venice, Tlaxcala). Past 3 cities, they go
+        // back to razing — they aren't supposed to become full empires.
+        val cityStateOverCap = civInfo.isCityState && civInfo.cities.size > 3
+        if ((city.population.population < 4 || cityStateOverCap)
             && city.foundingCivObject != civInfo && city.canBeDestroyed(justCaptured = true)) {
-            // raze if attacker is a city state
+            // raze if too small to be worth keeping, or if a city-state has exceeded its 3-city cap
             if (!civInfo.hasUnique(UniqueType.MayNotAnnexCities)) city.annexCity()
             city.isBeingRazed = true
         }

@@ -106,6 +106,9 @@ object TileDescription {
             if (tile.conquestGraceTurns > 0) {
                 lineList += FormattedLine("Grace period: ${tile.conquestGraceTurns} turns", color = "#8AF")
             }
+            if (tile.barbarianGraceTurns > 0) {
+                lineList += FormattedLine("Barbarian-free: ${tile.barbarianGraceTurns} turns", color = "#8FA")
+            }
         }
 
         return lineList

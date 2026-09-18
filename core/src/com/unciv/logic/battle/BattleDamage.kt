@@ -79,14 +79,11 @@ object BattleDamage {
                 modifiers["Veterancy"] = xpBonus
             }
 
-            // Territorial Warfare: ISI combat malus for distant units in crisis
-            if (civInfo.imperialStability < 40) {
-                val capital = civInfo.getCapital()
-                if (capital != null) {
-                    val distToCapital = combatant.getTile().aerialDistanceTo(capital.getCenterTile())
-                    if (distToCapital > 10) modifiers["Imperial instability"] = -20
-                }
-            }
+            // TW v2 — Total encirclement: when every adjacent LAND tile is owned by a civ
+            // currently at war with this unit's civ, strength collapses to 25%. Water tiles never
+            // count as encirclement (logistics can still flow by sea, landings stay possible),
+            // and even a single friendly/neutral/non-belligerent neighbour breaks the lock.
+            if (isFullyEncircled(combatant)) modifiers["Encircled"] = -75
 
         } else if (combatant is CityCombatant) {
             for (unique in combatant.city.getMatchingUniques(UniqueType.StrengthForCities, conditionalState)) {
@@ -100,6 +97,76 @@ object BattleDamage {
         }
 
         return modifiers
+    }
+
+    /** TW v2 — Returns true if the unit's combat strength should collapse from encirclement.
+     *  Two cases trigger the malus:
+     *    1. Every land neighbour is owned by a civ at war with us AND there is no water
+     *       neighbour either — pure land encirclement, no way out, full -75% malus.
+     *    2. Every land neighbour is enemy-controlled but at least one water neighbour exists.
+     *       The sea provides a logistical opening, so the malus only fires when the unit is
+     *       crammed in a saturated own-land pocket — pocket BFS over own land, malus only if
+     *       (military units / pocket tiles) > 0.5. A lone unit on a 2-tile peninsula sees a
+     *       0.5 ratio → no malus. Same unit on a 1-tile islet → ratio 1.0 → malus.
+     *  A single land opening (neutral, own, non-belligerent neighbour) or no land neighbour at
+     *  all (true island / fully waterbound) always breaks the encirclement: returns false. */
+    @Readonly
+    private fun isFullyEncircled(combatant: MapUnitCombatant): Boolean {
+        // TW v2 — Naval units are never "encircled": the sea is their natural medium, enemy land
+        // tiles on the coast don't constrain their movement or logistics.
+        if (combatant.unit.baseUnit.isWaterUnit) return false
+        val civ = combatant.unit.civ
+        val tile = combatant.getTile()
+        var hasEnemyLand = false
+        var hasNonCountingNeighbor = false  // water OR impassable-without-road: an opening, not a wall
+        for (neighbor in tile.neighbors) {
+            // TW v2 — impassable terrain (mountains) acts like the sea for encirclement: it doesn't
+            // count as a land tile to be held. Exception: if a road has been carved through it
+            // (mountain pass), it behaves like normal land — units and ownership flow across it.
+            val isUncountedTile = neighbor.isWater
+                || (neighbor.isImpassible()
+                    && neighbor.getUnpillagedRoad() == com.unciv.logic.map.tile.RoadStatus.None)
+            if (isUncountedTile) { hasNonCountingNeighbor = true; continue }
+            val owner = neighbor.getOwner()
+            if (owner == null || owner == civ || !civ.isAtWarWith(owner)) {
+                return false  // any land opening breaks the lock
+            }
+            hasEnemyLand = true
+        }
+        if (!hasEnemyLand) return false  // no land neighbour at all (waterbound / sealed by mountains) — no encirclement
+        // Pure land encirclement (no sea / mountain opening) → full malus.
+        if (!hasNonCountingNeighbor) return true
+        // Sea/mountain opening present → gate on own-land pocket saturation.
+        if (tile.getOwner() != civ) {
+            // Not on own land; with an opening nearby, treat the lone tile as the pocket (saturation 1.0).
+            return true
+        }
+        return isLandPocketSaturated(tile, civ)
+    }
+
+    /** BFS over own land starting from [start], collecting all reachable own-land tiles
+     *  (without crossing water, impassable terrain, or foreign tiles). Returns true if more than
+     *  half of the pocket's tiles are occupied by friendly military units. */
+    @Readonly
+    private fun isLandPocketSaturated(start: Tile, civ: com.unciv.logic.civilization.Civilization): Boolean {
+        @LocalState val pocket = HashSet<Tile>()
+        @LocalState val frontier = ArrayDeque<Tile>()
+        pocket.add(start); frontier.add(start)
+        while (frontier.isNotEmpty()) {
+            val cur = frontier.removeFirst()
+            for (n in cur.neighbors) {
+                if (n in pocket) continue
+                if (!n.isLand) continue
+                // TW v2 — impassable terrain (mountain) is part of the pocket only if it has a road
+                // (a pass): units can transit it, so it counts as navigable own land for saturation.
+                if (n.isImpassible() && n.getUnpillagedRoad() == com.unciv.logic.map.tile.RoadStatus.None) continue
+                if (n.getOwner() != civ) continue
+                pocket.add(n); frontier.add(n)
+            }
+        }
+        if (pocket.isEmpty()) return false
+        val militaryCount = pocket.count { it.militaryUnit?.civ == civ }
+        return militaryCount.toFloat() / pocket.size.toFloat() > 0.5f
     }
 
     @Readonly
@@ -200,10 +267,13 @@ object BattleDamage {
 
             // TW: cultural sympathy on the target tile shifts attacker strength.
             //   ≥ 70% attacker share → +30% attack ; ≤ 20% → -30%.
-            val targetTile = defender.getTile()
-            val attackerShare = com.unciv.logic.map.TileCultureLogic.getFriendlyShare(targetTile, attacker.getCivInfo())
-            if (attackerShare >= 0.70f) modifiers["Cultural sympathy"] = 30
-            else if (attackerShare <= 0.20f) modifiers["Hostile populace"] = -30
+            // TW v2 — Naval units never engage the local populace culturally: skip both bonus and malus.
+            if (!attacker.unit.baseUnit.isWaterUnit) {
+                val targetTile = defender.getTile()
+                val attackerShare = com.unciv.logic.map.TileCultureLogic.getFriendlyShare(targetTile, attacker.getCivInfo())
+                if (attackerShare >= 0.70f) modifiers["Cultural sympathy"] = 30
+                else if (attackerShare <= 0.20f) modifiers["Hostile populace"] = -30
+            }
         }
 
         return modifiers
@@ -212,10 +282,22 @@ object BattleDamage {
     @Readonly
     private fun getTerrainAttackModifiers(attacker: MapUnitCombatant, defender: ICombatant, tileToAttackFrom: Tile): Counter<String> {
         val modifiers = Counter<String>()
+        // TW v2 — Amphibious landings are punished only when no friendly foothold exists near the
+        // target tile. Once the attacking civ holds land within 3 hexes (= an established
+        // bridgehead, a captured city, or even a previous landing that survived), reinforcements
+        // coming off transports only suffer half the malus (-25 instead of -50). Without a
+        // foothold the original -50 still applies — the first wave still pays the full price.
+        val landingMalus: (defenderTile: Tile) -> Int = { tile ->
+            val hasFoothold = tile.getTilesInDistance(3).any {
+                it.isLand && it.getOwner() == attacker.unit.civ
+            }
+            if (hasFoothold) BattleConstants.LANDING_MALUS / 2 else BattleConstants.LANDING_MALUS
+        }
+
         if (attacker.unit.isEmbarked() && defender.getTile().isLand
             && !attacker.unit.hasUnique(UniqueType.AttackAcrossCoast)
         )
-            modifiers["Landing"] = BattleConstants.LANDING_MALUS
+            modifiers["Landing"] = landingMalus(defender.getTile())
 
         // Land Melee Unit attacking to Water
         if (attacker.unit.type.isLandUnit() && !attacker.getTile().isWater && attacker.isMelee() && defender.getTile().isWater
@@ -227,7 +309,7 @@ object BattleDamage {
         if (!attacker.unit.type.isAirUnit() && attacker.isMelee() && attacker.getTile().isWater && !defender.getTile().isWater
             && !attacker.unit.hasUnique(UniqueType.AttackAcrossCoast) && !defender.isCity()
         )
-            modifiers["Landing"] = BattleConstants.LANDING_MALUS
+            modifiers["Landing"] = landingMalus(defender.getTile())
 
         if (isMeleeAttackingAcrossRiverWithNoBridge(attacker, tileToAttackFrom, defender))
             modifiers["Across river"] = BattleConstants.ATTACKING_ACROSS_RIVER_MALUS
@@ -281,23 +363,57 @@ object BattleDamage {
 
             // TW: cultural sympathy on the defender's own tile shifts defense.
             //   ≥ 70% defender share → +30% defense ; ≤ 20% → -30%.
-            val defenderShare = com.unciv.logic.map.TileCultureLogic.getFriendlyShare(tile, defender.getCivInfo())
-            if (defenderShare >= 0.70f) modifiers["Cultural sympathy"] = 30
-            else if (defenderShare <= 0.20f) modifiers["Hostile populace"] = -30
+            // TW v2 — Naval units never engage the local populace culturally: skip both bonus and malus.
+            if (!defender.unit.baseUnit.isWaterUnit) {
+                val defenderShare = com.unciv.logic.map.TileCultureLogic.getFriendlyShare(tile, defender.getCivInfo())
+                if (defenderShare >= 0.70f) modifiers["Cultural sympathy"] = 30
+                else if (defenderShare <= 0.20f) modifiers["Hostile populace"] = -30
+            }
         }
 
-        // Territorial Warfare: small nation defensive bonus (major civs only)
+        // TW v2 — A garrisoned city inherits the garrison's natural defensive bonuses
+        // (terrain, fortification, cultural sympathy). Without this the city version of the
+        // same unit was strictly weaker than the unit on an open tile of the same terrain.
+        if (defender is CityCombatant) {
+            val garrison = tile.militaryUnit
+            if (garrison != null && !garrison.isEmbarked()) {
+                val tileDefenceBonus = tile.getDefensiveBonus(unit = garrison)
+                if (!garrison.hasUnique(UniqueType.NoDefensiveTerrainBonus, checkCivInfoUniques = true) && tileDefenceBonus > 0
+                    || !garrison.hasUnique(UniqueType.NoDefensiveTerrainPenalty, checkCivInfoUniques = true) && tileDefenceBonus < 0
+                )
+                    modifiers["Tile"] = (tileDefenceBonus * 100).toInt()
+
+                if (garrison.isFortified() || garrison.isGuarding())
+                    modifiers["Fortification"] = BattleConstants.FORTIFICATION_BONUS * garrison.getFortificationTurns()
+
+                // TW v2 — Naval garrison (rare but possible) is excluded from cultural populace effects.
+                if (!garrison.baseUnit.isWaterUnit) {
+                    val defenderShare = com.unciv.logic.map.TileCultureLogic.getFriendlyShare(tile, defender.getCivInfo())
+                    if (defenderShare >= 0.70f) modifiers["Cultural sympathy"] = 30
+                    else if (defenderShare <= 0.20f) modifiers["Hostile populace"] = -30
+                }
+            }
+        }
+
+        // TW v2 — Empire-scale defensive modifier (major civs only).
+        //   1 city  → +200%   (city-state level resilience)
+        //   2       → +100%
+        //   3       →  +50%
+        //   4       →    0%
+        //   5+      → −5% per city above 4, floored at −50% (5 → −5%, 14 → −50%, 20 → −50%)
+        // Models the "hard core, soft periphery" of overstretched empires.
         val defenderCiv = defender.getCivInfo()
         if (defenderCiv.isMajorCiv()) {
             val cityCount = defenderCiv.cities.size
-            val smallNationBonus = when (cityCount) {
-                1 -> 100
-                2 -> 50
-                3 -> 25
-                else -> 0
+            val empireSizeModifier = when (cityCount) {
+                1 -> 200
+                2 -> 100
+                3 -> 50
+                4 -> 0
+                else -> (-((cityCount - 4) * 5)).coerceAtLeast(-50)
             }
-            if (smallNationBonus > 0)
-                modifiers["Small nation"] = smallNationBonus
+            if (empireSizeModifier != 0)
+                modifiers["Empire size"] = empireSizeModifier
         }
 
         return modifiers

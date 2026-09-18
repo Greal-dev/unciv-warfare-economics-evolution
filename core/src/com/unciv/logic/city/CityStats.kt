@@ -106,7 +106,7 @@ class CityStats(val city: City) {
         val stats = Stats()
         val capitalForTradeRoutePurposes = city.civ.getCapital()!!
         if (city != capitalForTradeRoutePurposes && city.isConnectedToCapital()) {
-            stats.gold = (capitalForTradeRoutePurposes.population.population * 0.15f + city.population.population * 1.1f - 1) * 3f // Territorial Warfare: trade route bonus ×3
+            stats.gold = (capitalForTradeRoutePurposes.population.population * 0.15f + city.population.population * 1.1f - 1) * 2f // TW v2: trade route bonus ×2 (was ×3, reduced to curb runaway gold)
             for (unique in city.getMatchingUniques(UniqueType.StatsFromTradeRoute))
                 stats.add(unique.stats)
             val percentageStats = Stats()
@@ -308,6 +308,40 @@ class CityStats(val city: City) {
         return if (totalBonus == 0f) null else Stats(production = totalBonus, science = totalBonus)
     }
 
+    /** TW v2 — "Small-civ cluster" science bonus.
+     *  When your civ has 3 cities or fewer and at least one OTHER small civ (also ≤3 cities,
+     *  founding-civ-controlled capital) sits within range, you receive a strong science bonus.
+     *  Models a renaissance-of-small-states dynamic (e.g., Italian city republics) — small
+     *  neighbors stimulate each other intellectually, but a large empire next door does not.
+     *
+     *  Formula per qualifying neighbor: `Bonus = 150 - distance × 10` (min 0, cumulative, capped at 400). */
+    @Readonly
+    private fun getStatPercentBonusesFromSmallCivCluster(): Stats? {
+        val civ = city.civ
+        if (!civ.isMajorCiv()) return null
+        if (civ.cities.size > 3) return null
+
+        val myCapital = civ.getCapital() ?: return null
+
+        var totalBonus = 0f
+        for (otherCiv in civ.gameInfo.civilizations) {
+            if (otherCiv == civ) continue
+            if (!otherCiv.isMajorCiv()) continue
+            if (otherCiv.isDefeated()) continue
+            if (otherCiv.cities.size > 3) continue  // big empires don't qualify
+
+            val otherCapital = otherCiv.getCapital() ?: continue
+            if (otherCapital.foundingCivObject != null && otherCapital.foundingCivObject != otherCiv) continue
+
+            val distance = myCapital.getCenterTile().aerialDistanceTo(otherCapital.getCenterTile())
+            val bonus = (150f - distance * 10f).coerceAtLeast(0f)
+            totalBonus += bonus
+        }
+
+        totalBonus = totalBonus.coerceAtMost(400f)
+        return if (totalBonus == 0f) null else Stats(science = totalBonus)
+    }
+
     /** Territorial Warfare: production/culture modifiers based on Imperial Stability Index */
     @Readonly
     private fun getStatPercentBonusesFromImperialStability(): Stats? {
@@ -421,6 +455,83 @@ class CityStats(val city: City) {
         return null
     }
 
+    /**
+     * Territorial Warfare v2: reward controlling diverse resource portfolios instead of
+     * penalising raw city count. Each unique resource type owned (capped) gives flat
+     * production from strategics and flat gold from luxuries to every city.
+     */
+    @Readonly
+    private fun getStatsFromResourceDiversity(): Stats {
+        if (!city.civ.isMajorCiv()) return Stats()
+        val diversity = city.civ.getResourceDiversity()
+        // TW v2: strategic diversity moved to a % production bonus (see [getStatPercentBonusesFromResourceDiversity])
+        // so newly founded pop-1 cities don't inherit large flat shield boosts. Luxury → flat gold still.
+        return Stats(gold = 2f * diversity.luxury)
+    }
+
+    /** Territorial Warfare v2:
+     *  - Food % bonus per unique BONUS resource owned (5%/each)
+     *  - Production % bonus per unique STRATEGIC resource owned (5%/each)
+     *  Percentage rather than flat keeps the benefit proportional to the city's actual base. */
+    @Readonly
+    private fun getStatPercentBonusesFromResourceDiversity(): Stats? {
+        if (!city.civ.isMajorCiv()) return null
+        val diversity = city.civ.getResourceDiversity()
+        if (diversity.bonus == 0 && diversity.strategic == 0) return null
+        return Stats(
+            food = 5f * diversity.bonus,
+            production = 5f * diversity.strategic
+        )
+    }
+
+    /**
+     * TW v2 — Strategic surplus bonus: every 2 unused strategic resources (iron, coal,
+     * oil, aluminum, uranium, horses) add +1 gold to every city in the empire.
+     * Rewards stockpiling spares that could otherwise be sold for gpt to other civs.
+     */
+    @Readonly
+    private fun getStatsFromStrategicSurplus(): Stats {
+        if (!city.civ.isMajorCiv()) return Stats()
+        val surplus = city.civ.getStrategicSurplus()
+        if (surplus < 2) return Stats()
+        return Stats(gold = (surplus / 2).toFloat())
+    }
+
+    /** TW v2 — Federal Bonus removed: was over-rewarding pop-1 newly founded cities by
+     *  granting full empire-wide infrastructure value from turn one. */
+    @Readonly
+    private fun getStatsFromFederalBonus(): Stats {
+        return Stats()
+    }
+
+    /**
+     * TW v2 — Diminishing returns on the "1 pop = 1 sci/prod" rule for mega-cities.
+     * Pop 1-25  : 1.0× yield per pop (full)
+     * Pop 26-35 : 0.5× yield per pop (capped contribution after 25)
+     * Pop 36+   : 0.25× yield per pop
+     * Tames the population snowball in concentrated empires (Byzantium-style)
+     * without stopping growth or hurting normal-sized cities.
+     */
+    @Readonly
+    private fun effectivePopForBaseYield(): Float {
+        val pop = city.population.population
+        return when {
+            pop <= 25 -> pop.toFloat()
+            pop <= 35 -> 25f + (pop - 25) * 0.5f
+            else -> 30f + (pop - 35) * 0.25f
+        }
+    }
+
+    /**
+     * TW v2 — Multiplier soft-cap to prevent explosive stat stacking on a single city.
+     * Once total % bonuses on a stat exceed 250%, additional bonuses count for half.
+     * Caps the wonder-and-NC mega-cities without hurting normally-developed cities.
+     */
+    @Readonly
+    private fun softCapMultiplierPercent(percent: Float, cap: Float = 250f): Float {
+        return if (percent <= cap) percent else cap + (percent - cap) * 0.5f
+    }
+
     @Readonly
     private fun constructionMatchesFilter(construction: IConstruction, filter: String): Boolean {
         val state = city.state
@@ -493,7 +604,8 @@ class CityStats(val city: City) {
         var totalTileTax = 0f
         for (tile in city.getTiles()) {
             totalTerritoryFood += tile.stats.getTileStats(city, city.civ, localUniqueCache).food
-            totalTileTax += 0.5f * com.unciv.logic.map.TileCultureLogic.getYieldMultiplier(tile)
+            totalTileTax += com.unciv.logic.map.TileCultureLogic.getTerritorialGoldBase(tile) *
+                com.unciv.logic.map.TileCultureLogic.getYieldMultiplier(tile)
         }
         val foodEfficiency = when {
             city.cityConstructions.containsBuildingOrEquivalent("Medical Center") -> 1.0f
@@ -571,15 +683,20 @@ class CityStats(val city: City) {
         // We don't edit the existing baseStatList directly, in order to avoid concurrency exceptions
         val newBaseStatList = StatMap()
 
-        // TW: All population contributes 1 production each (not just free pop)
+        // TW v2: each pop contributes 1 sci + 1 prod, with diminishing returns past 25
+        // (pop 26-35: 0.5×, pop 36+: 0.25×) to tame mega-city snowballs.
+        val effectivePop = effectivePopForBaseYield()
         newBaseStatTree.addStats(Stats(
-            science = city.population.population.toFloat(),
-            production = city.population.population.toFloat()
+            science = effectivePop,
+            production = effectivePop
         ), "Population")
         newBaseStatList["Tile yields"] = statsFromTiles
         newBaseStatList["Specialists"] =
             getStatsFromSpecialists(city.population.getNewSpecialists())
         newBaseStatList["Trade routes"] = getStatsFromTradeRoute()
+        newBaseStatList["Resource diversity"] = getStatsFromResourceDiversity()
+        newBaseStatList["Strategic surplus"] = getStatsFromStrategicSurplus()
+        newBaseStatList["Federal bonus"] = getStatsFromFederalBonus()
         newBaseStatTree.children["Buildings"] = statsFromBuildings
 
         for ((source, stats) in newBaseStatList)
@@ -596,10 +713,16 @@ class CityStats(val city: City) {
         newStatsBonusTree.addStats(getStatPercentBonusesFromGoldenAge(city.civ.goldenAges.isGoldenAge()),"Golden Age")
         newStatsBonusTree.addStats(getStatPercentBonusesFromRailroad(), "Railroad")
         newStatsBonusTree.addStats(getStatPercentBonusesFromPuppetCity(), "Puppet City")
+        if (city.isColony) {
+            // TW v2: colonies funnel surplus into the metropole — extra gold output.
+            newStatsBonusTree.addStats(Stats(gold = 50f), "Colony")
+        }
         newStatsBonusTree.addStats(getStatPercentBonusesFromUnitSupply(), "Unit Supply")
         newStatsBonusTree.addStats(getStatPercentBonusesFromConquestAndExpansion(), "Conquest & Expansion")
         newStatsBonusTree.addStats(getStatPercentBonusesFromCapitalProximity(), "Capital Proximity")
+        newStatsBonusTree.addStats(getStatPercentBonusesFromSmallCivCluster(), "Small Civ Cluster")
         newStatsBonusTree.addStats(getStatPercentBonusesFromImperialStability(), "Imperial Stability")
+        newStatsBonusTree.addStats(getStatPercentBonusesFromResourceDiversity(), "Resource Diversity")
         newStatsBonusTree.addStats(getStatPercentBonusesFromHappiness(), "Happiness")
         newStatsBonusTree.add(getStatsPercentBonusesFromUniquesBySource(currentConstruction))
         
@@ -658,9 +781,10 @@ class CityStats(val city: City) {
 
         val statPercentBonusesSum = statPercentBonusTree.totalStats
 
-        // TW: Cap production penalties at -60% (floor = 40% of theoretical production)
-        // Prevents penalty stacking (conquest + stability + expansion + happiness) from zeroing out cities
-        val cappedProductionPercent = statPercentBonusesSum.production.coerceAtLeast(-60f)
+        // TW: Cap production penalties at -60% (floor) AND apply v2 soft-cap on the upside (+250% then half)
+        val cappedProductionPercent = softCapMultiplierPercent(
+            statPercentBonusesSum.production.coerceAtLeast(-60f)
+        )
         for (entry in newFinalStatList.values)
             entry.production *= cappedProductionPercent.toPercent()
 
@@ -708,11 +832,16 @@ class CityStats(val city: City) {
             newFinalStatList["Construction"] = statsFromProduction
         }
 
+        // TW v2: soft-cap each multiplier @ +250% (anti-mega-city stacking)
+        val cappedGoldPercent = softCapMultiplierPercent(statPercentBonusesSum.gold)
+        val cappedCulturePercent = softCapMultiplierPercent(statPercentBonusesSum.culture)
+        val cappedFoodPercent = softCapMultiplierPercent(statPercentBonusesSum.food)
+        val cappedFaithPercent = softCapMultiplierPercent(statPercentBonusesSum.faith)
         for (entry in newFinalStatList.values) {
-            entry.gold *= statPercentBonusesSum.gold.toPercent()
-            entry.culture *= statPercentBonusesSum.culture.toPercent()
-            entry.food *= statPercentBonusesSum.food.toPercent()
-            entry.faith *= statPercentBonusesSum.faith.toPercent()
+            entry.gold *= cappedGoldPercent.toPercent()
+            entry.culture *= cappedCulturePercent.toPercent()
+            entry.food *= cappedFoodPercent.toPercent()
+            entry.faith *= cappedFaithPercent.toPercent()
         }
 
         // TW: Gold-to-Science: slider % gives science bonus AND costs gold proportionally.
@@ -722,8 +851,12 @@ class CityStats(val city: City) {
         val goldToSciencePercent = if (city.getRuleset().modOptions.hasUnique(UniqueType.ConvertGoldToScience))
             city.civ.tech.goldPercentConvertedToScience else 0f
 
+        // TW v2: soft-cap science multiplier @ +250% (gold-to-science slider added before cap)
+        val cappedSciencePercent = softCapMultiplierPercent(
+            statPercentBonusesSum.science + goldToSciencePercent * 300f
+        )
         for (entry in newFinalStatList.values) {
-            entry.science *= (statPercentBonusesSum.science + goldToSciencePercent * 300f).toPercent()
+            entry.science *= cappedSciencePercent.toPercent()
         }
 
         if (goldToSciencePercent > 0f) {
@@ -829,6 +962,24 @@ class CityStats(val city: City) {
                     entry.gold *= gameInfo.customAiGoldModifier
                     entry.science *= gameInfo.customAiScienceModifier
                 }
+            }
+        }
+
+        // TW v2 — Soft hyperbolic-tangent dampening on raw city production only.
+        // y = K · tanh(x / K), tangent to y = x at the origin (no effect on small cities)
+        // and asymptotically approaching K. With K = 300:
+        //   x=50 → 49.5 (−1%), x=100 → 96.4 (−4%), x=200 → 174.7 (−13%),
+        //   x=300 → 228.5 (−24%), x=500 → 279.4 (−44%), x=1000 → 299 (−70%).
+        // Late-game mega-cities (raw 500–1000 with all production buildings + wonders)
+        // are noticeably capped but still keep a clear lead over standard cities (~100/turn).
+        // Science is dampened at the EMPIRE level instead — see CivInfoStatsForNextTurn.
+        val tanhK = 300.0
+        val rawProd = newFinalStatList.values.sumOf { it.production.toDouble() }
+        if (rawProd > 0.5) {
+            val damped = tanhK * kotlin.math.tanh(rawProd / tanhK)
+            val delta = (damped - rawProd).toFloat()
+            if (delta < -0.01f) {
+                newFinalStatList.add("Tanh dampening", Stats(production = delta))
             }
         }
 

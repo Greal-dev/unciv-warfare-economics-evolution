@@ -334,6 +334,24 @@ class CityScreen(
             razeCityButtonHolder.add(stopRazingCityButton) //.colspan(cityPickerTable.columns)
         }
 
+        // TW v2: voluntary independence — convert any owned non-capital city into an allied city-state.
+        if (!city.isCapital() && !city.isPuppet && !city.isBeingRazed && city.civ == GUI.getViewingPlayer()) {
+            val grantIndependenceButton = "Grant independence (City-State)".toTextButton()
+            grantIndependenceButton.labelCell.pad(10f)
+            grantIndependenceButton.onClick {
+                ConfirmPopup(
+                    this,
+                    "Grant independence to [${city.name}] as an allied city-state?\nThis is irreversible.",
+                    "Grant independence",
+                ) {
+                    city.grantIndependenceAsCityState()
+                    game.popScreen()
+                }.open()
+            }
+            if (!canChangeState) grantIndependenceButton.disable()
+            razeCityButtonHolder.add(grantIndependenceButton).padLeft(10f)
+        }
+
         if (isWLTKday && fireworks == null) {
             addWltkIcon("OtherIcons/WLTK 2") { color = Color.FIREBRICK }.padLeft(10f)
             addWltkIcon("OtherIcons/WLTK LR") {

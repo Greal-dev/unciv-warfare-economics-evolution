@@ -384,26 +384,43 @@ class CityConstructions : IsPartOfGameInfoSerialization {
         // Update InProgressConstructions for any available refunds
         validateInProgressConstructions()
 
-        val constructionName = currentConstructionName()
-        val construction = getConstruction(constructionName)
-        if (construction is PerpetualConstruction) chooseNextConstruction() // check every turn if we could be doing something better, because this doesn't end by itself
-        else {
-            val productionCost = (construction as INonPerpetualConstruction).getProductionCost(city.civ, city)
-            if (inProgressConstructions.containsKey(constructionName)
-                    && inProgressConstructions[constructionName]!! >= productionCost) {
-                val potentialOverflow = inProgressConstructions[constructionName]!! - productionCost
-                if (completeConstruction(construction)) {
-                    // See the URL below for explanation for this cap
-                    // https://forums.civfanatics.com/threads/hammer-overflow.419352/
-                    val maxOverflow = maxOf(productionCost, city.cityStats.currentCityStats.production.roundToInt())
-                    productionOverflow = min(maxOverflow, potentialOverflow)
-                }
-                else {
-                    city.civ.addNotification("No space available to place [${construction.name}] near [${city.name}]",
-                        city.location, NotificationCategory.Production, construction.name)
-                }
-                city.civ.civConstructions.builtItemsWithIncreasingCost[construction.name] += 1
+        // TW v2 — same-turn rollover: a city whose production exceeds the cost of its current item
+        // can finish more than one item in the same turn. After a completion, the overflow is fed
+        // straight into the next queued item; if that one also fills up, it completes too — and so
+        // on until production runs out, the queue empties, or we hit a PerpetualConstruction.
+        // Vanilla overflow cap (≤ max(prevCost, per-turn production)) still applies between items.
+        val maxIterations = 16  // safety bound against degenerate zero-cost loops
+        repeat(maxIterations) {
+            val constructionName = currentConstructionName()
+            val construction = getConstruction(constructionName)
+            if (construction is PerpetualConstruction) {
+                chooseNextConstruction()  // check every turn if we could be doing something better
+                return
             }
+            val nonPerpetual = construction as? INonPerpetualConstruction ?: return
+            val productionCost = nonPerpetual.getProductionCost(city.civ, city)
+            val accumulated = inProgressConstructions[constructionName] ?: return
+            if (accumulated < productionCost) return
+
+            val potentialOverflow = accumulated - productionCost
+            if (!completeConstruction(nonPerpetual)) {
+                city.civ.addNotification(
+                    "No space available to place [${nonPerpetual.name}] near [${city.name}]",
+                    city.location, NotificationCategory.Production, nonPerpetual.name
+                )
+                return
+            }
+            city.civ.civConstructions.builtItemsWithIncreasingCost[nonPerpetual.name] += 1
+
+            // See the URL below for explanation for this cap
+            // https://forums.civfanatics.com/threads/hammer-overflow.419352/
+            val maxOverflow = maxOf(productionCost, city.cityStats.currentCityStats.production.roundToInt())
+            val cappedOverflow = min(maxOverflow, potentialOverflow)
+            productionOverflow = 0
+            if (cappedOverflow <= 0) return
+            // Feed the overflow into the now-current (next-queued) construction immediately, so a
+            // fast city can chain completions within the same turn instead of waiting one turn each.
+            addProductionPoints(cappedOverflow)
         }
     }
 

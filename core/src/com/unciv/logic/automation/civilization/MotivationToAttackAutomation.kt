@@ -122,12 +122,19 @@ object MotivationToAttackAutomation {
         }
 
         if (targetCiv.isCityState) {
-            modifiers.add(Pair("Protectors", -targetCiv.cityStateFunctions.getProtectorCivs().size * 3f * personality.scaledFocus(PersonalityValue.Diplomacy)))
-            //The more potential friends of this CS, the more times the friend bonus is shared and the utilitarian option is to leave it alive
-            modifiers.add(Pair("Influence", -targetCiv.getDiplomacyManager(civInfo)!!.getInfluence() / 10f * personality.scaledFocus(PersonalityValue.Diplomacy)))
-            // The more we invested into the city state already, the less likely we're going to attack it, and vice versa
-            if (targetCiv.allyCiv == civInfo)
-                modifiers.add(Pair("Allied City-state", -20 * personality.scaledFocus(PersonalityValue.Diplomacy))) // There had better be a DAMN good reason
+            // TW v2 — City-states are conquest targets: any unallied CS gets a large
+            // flat motivation bump that bypasses personality gating, so peaceful civs
+            // still go after weak neighbours when there's no diplomatic cost.
+            val isAllied = targetCiv.allyCiv == civInfo
+            if (!isAllied) {
+                modifiers.add(Pair("City-state conquest target", 35f))
+                modifiers.add(Pair("Aggression bonus", 15f * personality.scaledFocus(PersonalityValue.Aggressive)))
+            } else {
+                modifiers.add(Pair("Allied City-state", -30f * personality.scaledFocus(PersonalityValue.Diplomacy)))
+            }
+            // Lightweight deterrents only — they no longer dominate the decision.
+            modifiers.add(Pair("Protectors", -targetCiv.cityStateFunctions.getProtectorCivs().size * 0.5f * personality.scaledFocus(PersonalityValue.Diplomacy)))
+            modifiers.add(Pair("Influence", -targetCiv.getDiplomacyManager(civInfo)!!.getInfluence() / 60f * personality.scaledFocus(PersonalityValue.Diplomacy)))
         }
 
         modifiers += getWonderBasedMotivations(targetCiv)

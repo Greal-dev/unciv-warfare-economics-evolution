@@ -559,12 +559,15 @@ class CityStateFunctions(val civInfo: Civilization) {
     }
 
     fun getFreeTechForCityState() {
-        // City-States automatically get all techs that at least half of the major civs know
+        // TW v2 — City-states automatically inherit any tech known by at least 1/3 of major civs
+        // (lowered from 50%). Combined with the 60% leader-rate floor in CalendarPacedScience,
+        // this keeps CS no more than ~1 era behind the leader instead of 2-3 eras.
         val researchableTechs = civInfo.gameInfo.ruleset.technologies.values
             .filter { !it.hasUnique(UniqueType.ResearchableMultipleTimes) && civInfo.tech.canBeResearched(it.name) }
         for (tech in researchableTechs) {
             val aliveMajorCivs = civInfo.gameInfo.getAliveMajorCivs()
-            if (aliveMajorCivs.count { it.tech.isResearched(tech.name) } > aliveMajorCivs.size / 2)
+            val threshold = (aliveMajorCivs.size + 2) / 3  // ceil(size / 3)
+            if (aliveMajorCivs.count { it.tech.isResearched(tech.name) } >= threshold)
                 civInfo.tech.addTechnology(tech.name)
         }
         return

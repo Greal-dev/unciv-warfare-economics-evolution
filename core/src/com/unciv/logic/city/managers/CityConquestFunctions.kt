@@ -186,13 +186,95 @@ class CityConquestFunctions(val city: City) {
 
         conquerCity(conqueringCiv, oldCiv, conqueringCiv)
         makePuppet()
+        markColonyIfApplicable(conqueringCiv)
         city.cityStats.update()
+    }
+
+    /** TW v2 — Phase 3: classify a freshly captured city as a "colony" if the new
+     *  owner is at Renaissance era+ and the city has no land path back to their
+     *  capital (sea-only route doesn't count). Colonies produce gold but no military. */
+    private fun markColonyIfApplicable(newCiv: Civilization) {
+        if (newCiv.isBarbarian) return
+        if (newCiv.getEraNumber() < 3) { city.isColony = false; return }
+        if (city.isCapital()) { city.isColony = false; return }
+        val capital = newCiv.getCapital() ?: return
+        city.isColony = !hasLandPath(city.getCenterTile(), capital.getCenterTile(), newCiv)
+    }
+
+    private fun hasLandPath(from: com.unciv.logic.map.tile.Tile,
+                            to: com.unciv.logic.map.tile.Tile,
+                            civ: Civilization): Boolean {
+        if (from == to) return true
+        val visited = HashSet<com.unciv.logic.map.tile.Tile>()
+        val frontier = ArrayDeque<com.unciv.logic.map.tile.Tile>()
+        frontier.add(from); visited.add(from)
+        while (frontier.isNotEmpty()) {
+            val current = frontier.removeFirst()
+            for (neighbor in current.neighbors) {
+                if (neighbor in visited) continue
+                if (neighbor.isWater || neighbor.isImpassible()) continue
+                // Must stay on civ-owned land; destination tile passes through too.
+                if (neighbor != to && neighbor.getOwner() != civ) continue
+                if (neighbor == to) return true
+                visited.add(neighbor); frontier.add(neighbor)
+            }
+        }
+        return false
     }
     
     private fun makePuppet(){
         city.isPuppet = true
         // The city could be producing something that puppets shouldn't, like units
         city.cityConstructions.removeAll()
+    }
+
+    /** TW v2 — Subjugate a freshly captured city-state instead of taking its city.
+     *
+     *  Called from the CityConquered popup when the captured city's current owner is a
+     *  city-state (so the popup fires BEFORE `moveToCiv` — the CS still legally owns the
+     *  city). Rather than running the regular conquest pipeline (which would strip the
+     *  CS's hinterland, then we'd liberate to a single-tile speck), we simply undo the
+     *  conquest side effects: heal the city, make peace, and forge a 500-influence
+     *  alliance. The CS keeps its territory, culture and identity intact. */
+    fun subjugateCityState(conqueringCiv: Civilization) {
+        val csCiv = city.civ  // the city-state, still the legal owner at this point
+        if (!csCiv.isCityState) return  // safety: only valid for CS captures
+
+        // Undo conquest side effects
+        city.hasJustBeenConquered = false
+        city.health = city.getMaxHealth()
+        city.removeFlag(CityFlags.Resistance)
+
+        // Make sure diplomatic contact exists, end the war, and forge alliance
+        if (!csCiv.knows(conqueringCiv))
+            csCiv.diplomacyFunctions.makeCivilizationsMeet(conqueringCiv)
+        val csDiplo = csCiv.getDiplomacyManager(conqueringCiv)
+        if (csDiplo != null) {
+            if (csDiplo.diplomaticStatus == DiplomaticStatus.War) csDiplo.makePeace()
+            csDiplo.setInfluence(500f)
+        }
+
+        // Clear war-related modifiers so the alliance isn't immediately soured
+        csDiplo?.removeModifier(DiplomaticModifiers.DeclaredWarOnUs)
+        csDiplo?.removeModifier(DiplomaticModifiers.CapturedOurCities)
+        csDiplo?.otherCivDiplomacy()?.removeModifier(DiplomaticModifiers.DeclaredWarOnUs)
+        csDiplo?.otherCivDiplomacy()?.removeModifier(DiplomaticModifiers.CapturedOurCities)
+
+        city.cityStats.update()
+
+        conqueringCiv.addNotification(
+            "[${csCiv.civName}] is now our ally — spared and restored after our intervention.",
+            city.getCenterTile().position,
+            NotificationCategory.Diplomacy,
+            csCiv.civName,
+            NotificationIcon.Diplomacy
+        )
+        csCiv.addNotification(
+            "[${conqueringCiv.civName}] has spared our city and forged an alliance.",
+            NotificationCategory.Diplomacy,
+            conqueringCiv.civName,
+            NotificationIcon.Diplomacy
+        )
     }
 
     fun annexCity() {
@@ -202,6 +284,21 @@ class CityConquestFunctions(val city: City) {
         city.setCityFocus(CityFocus.NoFocus)
         city.cityStats.update()
         GUI.setUpdateWorldOnNextRender()
+
+        // TW v2 — Phase 5: in the Information era, annexation is a major diplomatic
+        // taboo. The self-determination norm is fully established; every known civ
+        // reacts to the act with a strong negative modifier.
+        if (city.civ.getEraNumber() >= 7) {
+            for (otherCiv in city.civ.getKnownCivs()) {
+                if (!otherCiv.isMajorCiv() || otherCiv == city.civ) continue
+                val dipl = otherCiv.getDiplomacyManager(city.civ) ?: continue
+                dipl.addModifier(DiplomaticModifiers.UnacceptableDemands, -25f)
+            }
+            city.civ.addNotification(
+                "The world condemns our annexation of [${city.name}] in this era of self-determination.",
+                NotificationCategory.Diplomacy, NotificationIcon.Diplomacy
+            )
+        }
     }
 
     private fun diplomaticRepercussionsForConqueringCity(oldCiv: Civilization, conqueringCiv: Civilization) {
@@ -276,6 +373,67 @@ class CityConquestFunctions(val city: City) {
             }
         }
         city.isPuppet = false
+        city.isColony = false
+        city.removeFlag(CityFlags.Resistance)
+
+        // TW v2 — Liberating a city-state's city: fully restore the city-state and
+        // forge an alliance with the liberator (+500 influence). Without this the
+        // resurrected/transferred city-state lacked its personality/resource init
+        // and no diplomatic bond was created with the liberator.
+        if (foundingCiv.isCityState) {
+            val gameInfo = city.civ.gameInfo
+            if (foundingCiv.cityStatePersonality == null) {
+                foundingCiv.cityStateFunctions.initCityState(
+                    gameInfo.ruleset,
+                    gameInfo.gameParameters.startingEra,
+                    emptySequence()
+                )
+            }
+            if (!foundingCiv.knows(conqueringCiv))
+                foundingCiv.diplomacyFunctions.makeCivilizationsMeet(conqueringCiv)
+            val csDiplo = foundingCiv.getDiplomacyManager(conqueringCiv)
+            if (csDiplo != null) {
+                if (csDiplo.diplomaticStatus == DiplomaticStatus.War) csDiplo.makePeace()
+                csDiplo.setInfluence(500f)
+            }
+            // Meet every civ the liberator already knows so the restored CS is not isolated
+            for (otherCiv in conqueringCiv.getKnownCivs()) {
+                if (otherCiv == foundingCiv) continue
+                if (!foundingCiv.knows(otherCiv))
+                    foundingCiv.diplomacyFunctions.makeCivilizationsMeet(otherCiv)
+            }
+
+            // TW v2 — Restore the city-state's hinterland. The conquest path strips
+            // non-center tiles and re-assigns them to the conqueror's other cities, so
+            // without this the resurrected CS would come back as a single-tile speck
+            // (no borders, no culture context). Reclaim every tile within the city's
+            // standard working range (distance ≤ 3) that the conqueror currently holds.
+            val centerTile = city.getCenterTile()
+            for (tile in centerTile.getTilesInDistance(3)) {
+                if (tile == centerTile) continue
+                val owner = tile.getOwner() ?: continue
+                if (owner == conqueringCiv) {
+                    tile.getCity()?.expansion?.relinquishOwnership(tile)
+                    city.expansion.takeOwnership(tile)
+                }
+            }
+            // Also recover immediately-adjacent neutral tiles (the CS may have lost
+            // some of its periphery to release-to-neutral at conquest time).
+            for (tile in centerTile.neighbors) {
+                if (tile.getOwner() == null && !tile.isImpassible()) {
+                    city.expansion.takeOwnership(tile)
+                }
+            }
+
+            conqueringCiv.addNotification(
+                "[${foundingCiv.civName}] is now our ally after the liberation of [${city.name}] — borders restored, +500 influence",
+                city.getCenterTile().position,
+                NotificationCategory.Diplomacy,
+                foundingCiv.civName,
+                NotificationIcon.Diplomacy
+            )
+        }
+
         city.cityStats.update()
 
         // Move units out of the city when liberated
@@ -387,6 +545,25 @@ class CityConquestFunctions(val city: City) {
             tile.history.recordTakeOwnership(tile)
         }
 
+        // TW v2 — Russia trait: tundra and snow tiles never leave Russian hands.
+        // When a Russian city is conquered, those tiles are reassigned to the
+        // closest remaining Russian city (if any). Other terrains transfer normally.
+        if (oldCiv.civName == "Russia" && newCiv.civName != "Russia" && oldCiv.cities.isNotEmpty()) {
+            val frozenTiles = city.getTiles().filter {
+                !it.isCityCenter()
+                    && (it.baseTerrain == "Tundra" || it.baseTerrain == "Snow")
+            }.toList()
+            for (tile in frozenTiles) {
+                val targetCity = oldCiv.cities.minByOrNull {
+                    it.getCenterTile().aerialDistanceTo(tile)
+                } ?: break
+                city.expansion.relinquishOwnership(tile)
+                targetCity.expansion.takeOwnership(tile)
+            }
+        }
+        // Note: barbarian protection (no spawning) extends to all Russian territory now,
+        // but tile-conquest reversal stays scoped to tundra/snow per the original design.
+
         newCiv.cache.updateOurTiles()
         oldCiv.cache.updateOurTiles()
     }
@@ -469,32 +646,55 @@ class CityConquestFunctions(val city: City) {
         val gameInfo = city.civ.gameInfo
         val ruleset = gameInfo.ruleset
 
-        // Find an unused city-state nation
-        val usedNations = gameInfo.civilizations.map { it.civName }.toSet()
+        // Find an unused city-state nation. Only count ALIVE city-states as occupying
+        // their slot — dead CS names should be reusable (resurrection).
+        val occupiedNames = gameInfo.civilizations
+            .filter { !it.isDefeated() }
+            .map { it.civName }.toSet()
         val availableCsNation = ruleset.nations.values.firstOrNull {
-            it.isCityState && it.name !in usedNations
+            it.isCityState && it.name !in occupiedNames
         }
 
         if (availableCsNation == null) {
-            // No available city-state nations - fall back to puppet
+            // Truly no available CS nation — fall back to puppet (very rare)
+            conqueringCiv.addNotification(
+                "No free city-state slot available — keeping [${city.name}] as a puppet.",
+                city.getCenterTile().position,
+                NotificationCategory.Diplomacy, NotificationIcon.Diplomacy
+            )
             puppetCity(conqueringCiv)
             return
         }
 
         val oldCiv = city.civ
 
+        // If the chosen CS nation already exists as a defeated civ, resurrect it
+        // instead of creating a duplicate Civilization object.
+        val existingDefeated = gameInfo.civilizations
+            .firstOrNull { it.civName == availableCsNation.name && it.isDefeated() }
+        val newCsCiv: Civilization
+        if (existingDefeated != null) {
+            newCsCiv = existingDefeated
+            // Clear stale war states / diplomatic flags before resurrection
+            for (diploManager in newCsCiv.diplomacy.values) {
+                if (diploManager.diplomaticStatus == DiplomaticStatus.War) diploManager.makePeace()
+                diploManager.flagsCountdown.clear()
+                diploManager.otherCivDiplomacy().flagsCountdown.clear()
+                diploManager.diplomaticModifiers.clear()
+                diploManager.otherCivDiplomacy().diplomaticModifiers.clear()
+            }
+        } else {
+            newCsCiv = Civilization(availableCsNation.name)
+            newCsCiv.playerType = com.unciv.logic.civilization.PlayerType.AI
+            newCsCiv.gameInfo = gameInfo
+            gameInfo.civilizations.add(newCsCiv)
+            newCsCiv.setNationTransient()
+            newCsCiv.setTransients()
+            newCsCiv.cityStateFunctions.initCityState(ruleset, gameInfo.gameParameters.startingEra, emptySequence())
+        }
+
         // Diplomatic repercussions happen before city moves
         diplomaticRepercussionsForConqueringCity(oldCiv, conqueringCiv)
-
-        // Create the new city-state civilization
-        val newCsCiv = Civilization(availableCsNation.name)
-        newCsCiv.playerType = com.unciv.logic.civilization.PlayerType.AI
-        newCsCiv.gameInfo = gameInfo
-
-        gameInfo.civilizations.add(newCsCiv)
-        newCsCiv.setNationTransient()
-        newCsCiv.setTransients()  // Initialize all manager transients (tech, policies, espionage, etc.)
-        newCsCiv.cityStateFunctions.initCityState(ruleset, gameInfo.gameParameters.startingEra, emptySequence())
 
         // Transfer the city via conquerCity
         conquerCity(conqueringCiv, oldCiv, newCsCiv)
@@ -523,6 +723,85 @@ class CityConquestFunctions(val city: City) {
 
         conqueringCiv.addNotification(
             "[${city.name}] has been converted to an allied city-state",
+            city.getCenterTile().position,
+            NotificationCategory.Diplomacy,
+            NotificationIcon.Diplomacy
+        )
+    }
+
+    /**
+     * Territorial Warfare: voluntarily grant independence to one of your own cities,
+     * turning it into an allied city-state at 500 influence. Not allowed on the capital.
+     */
+    fun grantIndependenceAsCityState() {
+        val owningCiv = city.civ
+        val gameInfo = owningCiv.gameInfo
+        val ruleset = gameInfo.ruleset
+
+        if (city.isCapital()) {
+            owningCiv.addNotification(
+                "Cannot convert the capital to a city-state",
+                city.getCenterTile().position,
+                NotificationCategory.Diplomacy, NotificationIcon.Diplomacy
+            )
+            return
+        }
+
+        val occupiedNames = gameInfo.civilizations
+            .filter { !it.isDefeated() }
+            .map { it.civName }.toSet()
+        val availableCsNation = ruleset.nations.values.firstOrNull {
+            it.isCityState && it.name !in occupiedNames
+        }
+
+        if (availableCsNation == null) {
+            owningCiv.addNotification(
+                "No free city-state slot available — conversion aborted.",
+                city.getCenterTile().position,
+                NotificationCategory.Diplomacy, NotificationIcon.Diplomacy
+            )
+            return
+        }
+
+        val existingDefeated = gameInfo.civilizations
+            .firstOrNull { it.civName == availableCsNation.name && it.isDefeated() }
+        val newCsCiv: Civilization
+        if (existingDefeated != null) {
+            newCsCiv = existingDefeated
+            for (diploManager in newCsCiv.diplomacy.values) {
+                if (diploManager.diplomaticStatus == DiplomaticStatus.War) diploManager.makePeace()
+                diploManager.flagsCountdown.clear()
+                diploManager.otherCivDiplomacy().flagsCountdown.clear()
+                diploManager.diplomaticModifiers.clear()
+                diploManager.otherCivDiplomacy().diplomaticModifiers.clear()
+            }
+        } else {
+            newCsCiv = Civilization(availableCsNation.name)
+            newCsCiv.playerType = com.unciv.logic.civilization.PlayerType.AI
+            newCsCiv.gameInfo = gameInfo
+            gameInfo.civilizations.add(newCsCiv)
+            newCsCiv.setNationTransient()
+            newCsCiv.setTransients()
+            newCsCiv.cityStateFunctions.initCityState(ruleset, gameInfo.gameParameters.startingEra, emptySequence())
+        }
+
+        // Transfer the city (voluntary — no war, no resistance)
+        city.moveToCiv(newCsCiv)
+
+        newCsCiv.diplomacyFunctions.makeCivilizationsMeet(owningCiv)
+        newCsCiv.getDiplomacyManager(owningCiv)?.setInfluence(500f)
+
+        for (otherCiv in owningCiv.getKnownCivs()) {
+            if (!newCsCiv.knows(otherCiv))
+                newCsCiv.diplomacyFunctions.makeCivilizationsMeet(otherCiv)
+        }
+
+        city.isPuppet = false
+        city.removeFlag(CityFlags.Resistance)
+        city.cityStats.update()
+
+        owningCiv.addNotification(
+            "[${city.name}] has been granted independence as an allied city-state",
             city.getCenterTile().position,
             NotificationCategory.Diplomacy,
             NotificationIcon.Diplomacy

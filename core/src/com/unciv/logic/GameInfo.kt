@@ -724,6 +724,10 @@ class GameInfo : IsPartOfGameInfoSerialization, HasGameInfoSerializationVersion 
         // This needs to go before tileMap.setTransients, as units need to access
         // the nation of their civilization when setting transients
         for (civInfo in civilizations) civInfo.gameInfo = this
+        // TW v2 — re-register synthetic CS clones (Geneva II, Geneva III, …) so
+        // setNationTransient below can look them up. Must run AFTER ruleset is
+        // assigned and BEFORE any civ tries to resolve its nation.
+        com.unciv.logic.map.SyntheticCityStateNations.reregisterMissingClones(this)
         for (civInfo in civilizations) {
             civInfo.setNationTransient()
             civInfo.cache.updateState()

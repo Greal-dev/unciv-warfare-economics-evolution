@@ -18,9 +18,103 @@ import kotlin.random.Random
 
 class CityTurnManager(val city: City) {
 
+    /** TW v2 — Phase 3: BFS land path from city center to [target] through this civ's
+     *  owned land tiles. Used to decide if a colony has been integrated into the metropole. */
+    private fun hasLandPathTo(target: City): Boolean {
+        val from = city.getCenterTile()
+        val to = target.getCenterTile()
+        if (from == to) return true
+        val visited = HashSet<com.unciv.logic.map.tile.Tile>()
+        val frontier = ArrayDeque<com.unciv.logic.map.tile.Tile>()
+        frontier.add(from); visited.add(from)
+        while (frontier.isNotEmpty()) {
+            val current = frontier.removeFirst()
+            for (neighbor in current.neighbors) {
+                if (neighbor in visited) continue
+                if (neighbor.isWater || neighbor.isImpassible()) continue
+                if (neighbor != to && neighbor.getOwner() != city.civ) continue
+                if (neighbor == to) return true
+                visited.add(neighbor); frontier.add(neighbor)
+            }
+        }
+        return false
+    }
+
+    /** TW v2 — Siege mechanic. A city is besieged when every non-impassable neighbor of
+     *  the city center is enemy-controlled (enemy territory OR enemy military unit on it).
+     *  After 3 consecutive turns of full encirclement, the city surrenders to the
+     *  dominant besieger (becomes a puppet of theirs). Barbarian besiegers sack rather
+     *  than capture (loss of gold, siege resets). The check runs every start-of-turn so
+     *  any friendly relief (incoming garrison rotation, retaking a tile) resets it. */
+    private fun processSiege() {
+        if (city.civ.isBarbarian) return  // barbarian cities aren't besieged
+        val cityTile = city.getCenterTile()
+        val neighbors = cityTile.neighbors.filter { !it.isImpassible() }.toList()
+        if (neighbors.isEmpty()) { city.siegeTurns = 0; return }
+
+        fun isEnemyControlled(tile: com.unciv.logic.map.tile.Tile): Boolean {
+            val owner = tile.getOwner()
+            if (owner != null && owner != city.civ && city.civ.isAtWarWith(owner)) return true
+            val mil = tile.militaryUnit ?: return false
+            return mil.civ != city.civ && city.civ.isAtWarWith(mil.civ)
+        }
+
+        val allBlocked = neighbors.all { isEnemyControlled(it) }
+        if (!allBlocked) { city.siegeTurns = 0; return }
+
+        city.siegeTurns++
+        if (city.siegeTurns < 3) return
+
+        // Identify the dominant besieger (most neighbor tiles claimed/occupied)
+        val candidates = neighbors.flatMap { tile ->
+            listOfNotNull(
+                tile.getOwner()?.takeIf { it != city.civ && city.civ.isAtWarWith(it) },
+                tile.militaryUnit?.civ?.takeIf { it != city.civ && city.civ.isAtWarWith(it) }
+            )
+        }
+        val besieger = candidates.groupingBy { it }.eachCount()
+            .maxByOrNull { it.value }?.key ?: return
+
+        // Barbarian: sack & loot, don't capture
+        if (besieger.isBarbarian) {
+            val ransom = minOf(500, city.civ.gold).coerceAtLeast(0)
+            if (ransom > 0) city.civ.addGold(-ransom)
+            city.siegeTurns = 0
+            city.civ.addNotification(
+                "[${city.name}] was sacked by barbarian besiegers! Lost [$ransom] gold.",
+                city.location, NotificationCategory.War, NotificationIcon.War
+            )
+            return
+        }
+
+        // Civ surrenders the city to the besieger as a conquered puppet
+        city.civ.addNotification(
+            "After 3 turns of siege, [${city.name}] has surrendered to [${besieger.civName}]!",
+            city.location, NotificationCategory.War, NotificationIcon.Death
+        )
+        besieger.addNotification(
+            "After 3 turns of siege, [${city.name}] has surrendered to us!",
+            city.location, NotificationCategory.War, NotificationIcon.War
+        )
+        city.siegeTurns = 0
+        city.puppetCity(besieger)
+    }
+
 
     fun startTurn() {
         city.clearCaches()
+        // TW v2: keep tilesInRange in sync with the era-progressive work radius.
+        city.tilesInRange = city.getCenterTile().getTilesInDistance(city.getWorkRange()).toHashSet()
+
+        // TW v2: siege check — a fully encircled city surrenders after 3 turns.
+        processSiege()
+
+        // TW v2: Phase 3 — re-evaluate colony status. A colony loses the flag if a
+        // land path to the capital opens up (e.g., new conquests joined the continent).
+        if (city.isColony && !city.isCapital()) {
+            val cap = city.civ.getCapital()
+            if (cap != null && hasLandPathTo(cap)) city.isColony = false
+        }
         
         for (resource in city.getResourcesGeneratedByCity()) {
             if (resource.resource.isStockpiled && resource.resource.isCityWide)

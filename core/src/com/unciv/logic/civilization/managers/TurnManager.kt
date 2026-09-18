@@ -27,6 +27,21 @@ class TurnManager(val civInfo: Civilization) {
     fun startTurn(progressBar: NextTurnProgress? = null) {
         if (civInfo.isSpectator()) return
 
+        // TW v2 — Spontaneous city-state spawn. Hooked on the barbarian civ (the
+        // first to process each round) so it runs once per turn round-robin and never
+        // partway through a major civ's processing.
+        if (civInfo.isBarbarian) {
+            com.unciv.logic.map.SpontaneousCityStateSpawner.maybeSpawn(civInfo.gameInfo)
+            // TW v2 — Maritime borders are barbarian-free: destroy any barbarian unit sitting
+            // in a civ's owned territorial waters (whether spawned there or sailed in).
+            for (unit in civInfo.units.getCivUnits().toList()) {
+                val tile = unit.getTile()
+                val owner = tile.getOwner()
+                if (tile.isWater && owner != null && !owner.isBarbarian)
+                    unit.destroy()
+            }
+        }
+
         civInfo.threatManager.clear()
         if (civInfo.isMajorCiv() && civInfo.isAlive()) {
             civInfo.statsHistory.recordRankingStats(civInfo)
@@ -65,6 +80,22 @@ class TurnManager(val civInfo: Civilization) {
         civInfo.cache.updateViewableTiles() // adds explored tiles so that the units will be able to perform automated actions better
         civInfo.cache.updateCitiesConnectedToCapital()
 
+        // TW v2 — Encirclement is now evaluated at combat time as a strength modifier
+        // (BattleDamage.isFullyEncircled), so the per-turn pocket precomputation is obsolete.
+        // We still clear the legacy field so old saves don't carry stale references.
+        civInfo.chokedPocketUnits = emptyMap()
+
+        // TW v2 — Human auto-improvements: spend treasury above the reserve floor on
+        // infrastructure (farms / resource improvements / trading posts / clearance).
+        if (civInfo.isHuman()) {
+            println("[TWv2 auto-improve hook] ${civInfo.civName}: enabled=${civInfo.autoImprovementsEnabled} " +
+                "reserve=${civInfo.autoImprovementsReserve} gold=${civInfo.gold}")
+            if (civInfo.autoImprovementsEnabled) {
+                com.unciv.logic.automation.civilization.ImprovementPurchaseAutomation
+                    .automate(civInfo, civInfo.autoImprovementsReserve)
+            }
+        }
+
         // Territorial Warfare: Imperial Stability Index
         if (civInfo.isMajorCiv() && civInfo.cities.isNotEmpty()) {
             val previousISI = civInfo.imperialStability
@@ -74,6 +105,21 @@ class TurnManager(val civInfo: Civilization) {
             civInfo.demographicShockCitiesThisTurn = 0
             civInfo.stabilityManager.checkForDemographicShock()
             civInfo.stabilityManager.checkForRevolt()
+            civInfo.stabilityManager.checkHegemonyThreat()
+
+            // TW v2 — process tile improvements paid last turn (1-turn delay).
+            for (pos in civInfo.pendingPurchaseTiles.toList()) {
+                val tile = civInfo.gameInfo.tileMap[pos]
+                if (com.unciv.logic.map.tile.TileImprovementBuyer.processPendingPurchase(tile, civInfo)) {
+                    civInfo.pendingPurchaseTiles.remove(pos)
+                }
+            }
+
+            // TW v2 — Workers no longer exist. Auto-disband legacy Workers from old saves.
+            for (unit in civInfo.units.getCivUnits().toList()) {
+                if (unit.hasUnique(com.unciv.models.ruleset.unique.UniqueType.BuildImprovements))
+                    unit.destroy()
+            }
 
             // Notify on tier change
             val previousTier = ImperialStabilityManager.StabilityTier.fromISI(previousISI)
@@ -347,21 +393,65 @@ class TurnManager(val civInfo: Civilization) {
             if (civInfo.gameInfo.isEspionageEnabled() && !civInfo.hasFlag(CivFlags.TurnsTillCityStateElection.name)) {
                 civInfo.addFlag(CivFlags.TurnsTillCityStateElection.name, Random.nextInt(civInfo.gameInfo.ruleset.modOptions.constants.cityStateElectionTurns + 1))
             }
+
+            // TW v2 — Free development credits: CS have no workers but develop organically.
+            // Every 5 turns:  1 free repair on the most critical pillaged tile.
+            // Every 20 turns: 1 free improvement on the best unimproved tile.
+            com.unciv.logic.map.CityStateDevelopmentGrants.applyGrants(civInfo)
         }
 
-        // disband units until there are none left OR the gold values are normal
+        // TW v2 — Sovereign default (FIRST, runs every turn regardless of next-turn income):
+        //   gold ≤ -3000 OR (gold ≤ -1000 with no military left) → debt cancelled,
+        //   ALL military disbanded, gold reset to 0. Interest snowball makes recovery
+        //   past -3000 mathematically impossible, so we cap there.
+        if (!civInfo.isBarbarian &&
+            (civInfo.gold <= -3000 ||
+                (civInfo.gold <= -1000 && civInfo.units.getCivUnits().none { it.isMilitary() }))) {
+            for (unit in civInfo.units.getCivUnits().filter { it.isMilitary() }.toList()) {
+                unit.disband()
+            }
+            civInfo.addGold(-civInfo.gold)  // reset to 0
+            civInfo.addNotification(
+                "Sovereign default! Our debt has been cancelled but we have lost our army.",
+                NotificationCategory.General, NotificationIcon.Death
+            )
+            nextTurnStats = civInfo.stats.statsForNextTurn
+        }
+
+        // TW v2 — Bankruptcy & desertion (soft/hard disband):
+        //   Soft phase (gold ∈ [-1000, -200]): minor disband when next-turn income is negative.
+        //   Hard phase (gold ≤ -1000):  aggressive desertion until next-turn income ≥ +5/turn
+        //     (cushion) to avoid oscillating at the threshold.
         if (!civInfo.isBarbarian && civInfo.gold <= -200 && nextTurnStats.gold.toInt() < 0) {
+            val cushion = if (civInfo.gold <= -1000) 5 else 0
             do {
-                val militaryUnits = civInfo.units.getCivUnits().filter { it.isMilitary() }  // New sequence as disband replaces unitList
-                val unitToDisband = militaryUnits.minByOrNull { it.baseUnit.cost }
-                    // or .firstOrNull()?
-                    ?: break
+                val militaryUnits = civInfo.units.getCivUnits().filter { it.isMilitary() }
+                val unitToDisband = militaryUnits.minByOrNull { it.baseUnit.cost } ?: break
                 unitToDisband.disband()
                 val unitName = unitToDisband.shortDisplayName()
                 civInfo.addNotification("Cannot provide unit upkeep for $unitName - unit has been disbanded!", NotificationCategory.Units, unitName, NotificationIcon.Death)
-                // No need to recalculate unit upkeep, disband did that in UnitManager.removeUnit
                 nextTurnStats = civInfo.stats.statsForNextTurn
-            } while (civInfo.gold <= -200 && nextTurnStats.gold.toInt() < 0)
+            } while (civInfo.gold <= -200 && nextTurnStats.gold.toInt() < cushion)
+        }
+
+        // TW v2 — Peacetime fiscal accountability:
+        //   Wartime deficits are accepted (drumming up the war machine costs gold). In PEACE,
+        //   sustained bankruptcy (5+ consecutive turns of gold < -50 AND projected income < 0)
+        //   forces the empire to lose its farthest city by secession — joining a culturally
+        //   dominant neighbour, declaring as a new city-state, or being abandoned to the
+        //   wilderness if no diplomatic outlet is available. Resets the moment finances recover.
+        if (!civInfo.isBarbarian) {
+            val deficitNow = civInfo.gold < -50 && nextTurnStats.gold.toInt() < 0
+            if (civInfo.isAtWar() || !deficitNow) {
+                civInfo.peacetimeBankruptcyTurns = 0
+            } else {
+                civInfo.peacetimeBankruptcyTurns++
+                if (civInfo.peacetimeBankruptcyTurns >= 5) {
+                    val seceded = com.unciv.logic.map.TileCultureLogic.performBankruptcySecession(civInfo)
+                    civInfo.peacetimeBankruptcyTurns = 0
+                    if (seceded) nextTurnStats = civInfo.stats.statsForNextTurn
+                }
+            }
         }
 
         // TW: Vassal tribute - transfer 25% of gold/science to suzerain
@@ -382,10 +472,24 @@ class TurnManager(val civInfo: Civilization) {
             }
         }
 
-        civInfo.addGold(nextTurnStats.gold.toInt() )
+        civInfo.addGold(nextTurnStats.gold.toInt())
 
-        if (civInfo.cities.isNotEmpty() && civInfo.gameInfo.ruleset.technologies.isNotEmpty())
-            civInfo.tech.endTurn(nextTurnStats.science.toInt())
+        // TW v2 — Banking interest: ±0.5% per turn on the gold balance once Banking
+        // is researched. Mild incentive to hoard, mild penalty for sustained debt;
+        // basic improvements remain the better long-term return.
+        if (civInfo.tech.isResearched("Banking") && civInfo.gold != 0) {
+            val interest = (civInfo.gold * 0.005f).toInt()
+            if (interest != 0) civInfo.addGold(interest)
+        }
+
+        if (civInfo.cities.isNotEmpty() && civInfo.gameInfo.ruleset.technologies.isNotEmpty()) {
+            // TW v2: calendar-paced science replaces direct raw-science accumulation.
+            // The leader (top science civ) is paced to finish each era at its `startPercent`
+            // calendar boundary; others advance at `leader_rate × ratio`.
+            val pacedScience = com.unciv.logic.civilization.CalendarPacedScience
+                .effectiveSciencePerTurn(civInfo)
+            civInfo.tech.endTurn(pacedScience)
+        }
 
         civInfo.religionManager.endTurn(nextTurnStats.faith.toInt())
         civInfo.totalFaithForContests += nextTurnStats.faith.toInt()

@@ -23,9 +23,10 @@ class BaseUnitCost(val baseUnit: BaseUnit) {
         for (unique in baseUnit.getMatchingUniques(UniqueType.CostPercentageChange, stateForConditionals))
             productionCost *= unique.params[0].toPercent()
 
-        // Territorial Warfare: workers cost ×4 production
+        // Territorial Warfare v2: workers cost ×0.75 vanilla production
+        // (cheaper than vanilla, but they pay era-scaled upkeep — see CivInfoStatsForNextTurn).
         if (baseUnit.hasUnique(UniqueType.BuildImprovements))
-            productionCost *= 4f
+            productionCost *= 0.75f
 
         // TW: Settlers cost ÷10 from Renaissance era (era 3+) — colonial expansion
         if (baseUnit.hasUnique(UniqueType.FoundCity) && civInfo.getEraNumber() >= 3)

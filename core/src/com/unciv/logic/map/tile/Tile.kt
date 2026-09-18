@@ -98,6 +98,10 @@ class Tile : IsPartOfGameInfoSerialization {
     var cultureMap: HashMap<String, Float> = hashMapOf()
     /** Grace period after ownership change. No rebellion while > 0. Counts down each turn. */
     var conquestGraceTurns: Int = 0
+    /** TW v2 — Barbarian-free grace after a city-state is culturally absorbed. While > 0,
+     *  no barbarian may spawn on this tile (the new administration pacifies the land).
+     *  Counts down each turn, independently of [conquestGraceTurns]. */
+    var barbarianGraceTurns: Int = 0
     /** Turns the tile has been in active rebellion. 0 = no rebellion. */
     var rebellionTurns: Int = 0
 
@@ -258,6 +262,7 @@ class Tile : IsPartOfGameInfoSerialization {
         // Territorial Warfare: culture system fields
         toReturn.cultureMap = HashMap(cultureMap)
         toReturn.conquestGraceTurns = conquestGraceTurns
+        toReturn.barbarianGraceTurns = barbarianGraceTurns
         toReturn.rebellionTurns = rebellionTurns
         // Setting even though it's transient - where it's needed, it's a real performance saver
         toReturn.tileResourceCache = tileResourceCache
@@ -656,13 +661,11 @@ class Tile : IsPartOfGameInfoSerialization {
 
     @Readonly
     fun canBeSettled(civ: Civilization): Boolean {
-        val modConstants = tileMap.gameInfo.ruleset.modOptions.constants
         return when {
             isWater || isImpassible() -> false
-            getTilesInDistance(modConstants.minimalCityDistanceOnDifferentContinents)
-                .any { it.isCityCenter() && it.getContinent() != getContinent() } -> false
-            getTilesInDistance(modConstants.minimalCityDistance)
-                .any { it.isCityCenter() && it.getContinent() == getContinent() } -> false
+            // TW v2 — All city-spacing distance limits removed: cities may be founded with
+            // no minimum gap, even directly adjacent to another city centre. Only water,
+            // impassable terrain, and foreign-owned territory still block settling.
             // cannot settle in someone else's territory
             owningCity != null && owningCity!!.civ != civ -> false
             else -> true
