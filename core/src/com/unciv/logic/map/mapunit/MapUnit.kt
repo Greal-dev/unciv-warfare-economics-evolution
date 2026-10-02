@@ -133,6 +133,16 @@ class MapUnit : IsPartOfGameInfoSerialization {
     /** Territorial Warfare: combat bonus from kills. +5% per kill, decays -1% per turn */
     var killBonus = 0f
 
+    /** Front mode: name of the current [com.unciv.logic.front.FrontStance] (only meaningful for divisions).
+     *  Stored by name so saves stay readable and survive reordering of the enum. */
+    var frontStance: String = com.unciv.logic.front.FrontStance.Defensive.name
+
+    /** Front mode: entrenchment gained by holding still in the defensive stance, 0.0 to the cap of the stance. */
+    var frontEntrenchment: Float = 0f
+
+    /** Front mode: tile the division stood on at the previous resolution, to detect that it moved. */
+    var frontAnchor: HexCoord? = null
+
     /** TW v2: turns this unit has been garrisoned on a culturally hostile tile (friendly share < 70%).
      *  After 15 such turns, the unit starts taking attrition damage (up to 30 HP/turn) unless the
      *  civilization can pay a maintenance subsidy to suppress it. Reset to 0 when the unit moves or
@@ -261,6 +271,9 @@ class MapUnit : IsPartOfGameInfoSerialization {
         toReturn.mostRecentMoveType = mostRecentMoveType
         toReturn.attacksSinceTurnStart = ArrayList(attacksSinceTurnStart)
         toReturn.killBonus = killBonus
+        toReturn.frontStance = frontStance
+        toReturn.frontEntrenchment = frontEntrenchment
+        toReturn.frontAnchor = frontAnchor
         return toReturn
     }
 

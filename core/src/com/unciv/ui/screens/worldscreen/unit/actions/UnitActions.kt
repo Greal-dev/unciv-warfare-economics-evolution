@@ -151,7 +151,8 @@ object UnitActions {
 
         addRestoreUnitAction(unit)
         addSleepActions(unit, tile)
-        addFortifyActions(unit)
+        if (com.unciv.logic.front.FrontResolver.isDivision(unit)) addFrontStanceActions(unit)
+        else addFortifyActions(unit)
 
         addExplorationActions(unit)
 
@@ -311,6 +312,18 @@ object UnitActions {
             unit.action = UnitActionType.Explore.value
             if (unit.hasMovement()) UnitAutomation.automatedExplore(unit)
         })
+    }
+
+    /** Front mode: a division has no fortify or sleep, it chooses one of four postures. */
+    private suspend fun SequenceScope<UnitAction>.addFrontStanceActions(unit: MapUnit) {
+        val current = com.unciv.logic.front.FrontResolver.stanceOf(unit)
+        for (stance in com.unciv.logic.front.FrontStance.entries)
+            yield(UnitAction(UnitActionType.FrontStance,
+                useFrequency = 40f,
+                title = stance.label,
+                isCurrentAction = stance == current,
+                action = { unit.frontStance = stance.name }.takeIf { stance != current }
+            ))
     }
 
     private suspend fun SequenceScope<UnitAction>.addFortifyActions(unit: MapUnit) {

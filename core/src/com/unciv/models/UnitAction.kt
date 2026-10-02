@@ -163,6 +163,8 @@ enum class UnitActionType(
         { ImageGetter.getUnitActionPortrait("FortifyUntilHealed") }, UncivSound.Fortify),
     Guard("Guard",
         { ImageGetter.getUnitActionPortrait("Guard") }, UncivSound.Fortify, defaultPage = 0),
+    FrontStance("Front stance",
+        { ImageGetter.getUnitActionPortrait("Fortify") }, UncivSound.Fortify, defaultPage = 0),
     Explore("Explore",
         { ImageGetter.getUnitActionPortrait("Explore") }),
     StopExploration("Stop exploration",

@@ -62,6 +62,11 @@ class Tile : IsPartOfGameInfoSerialization {
     var improvementIsPillaged = false
     var improvementTurnBuilt: Int = -1  // TW: turn when improvement was built (for maturation)
 
+    /** Front mode: progress (0..100) of the pressure a civilization exerts on this tile. The tile changes hands at 100. */
+    var frontProgress: Float = 0f
+    /** Front mode: civName of the civilization currently pressing this tile, null when nobody does. */
+    var frontAttacker: String? = null
+
     internal class ImprovementQueueEntry(
         val improvement: String, turnsToImprovement: Int
     ) : IsPartOfGameInfoSerialization {
@@ -269,6 +274,8 @@ class Tile : IsPartOfGameInfoSerialization {
         cloneImprovementQueue.addAll(improvementQueue.map { it.clone() })
         toReturn.improvementIsPillaged = improvementIsPillaged
         toReturn.improvementTurnBuilt = improvementTurnBuilt
+        toReturn.frontProgress = frontProgress
+        toReturn.frontAttacker = frontAttacker
         toReturn.roadStatus = roadStatus
         toReturn.roadIsPillaged = roadIsPillaged
         toReturn.roadOwner = roadOwner

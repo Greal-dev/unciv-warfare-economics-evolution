@@ -34,6 +34,17 @@
 		"attackSound": "nonmetalhit"
 	},
 	{
+		"name": "Division",
+		"unitType": "Sword",
+		"movement": 2,
+		"strength": 20,
+		"cost": 60,
+		"uniques": ["Cannot attack"],
+		"attackSound": "nonmetalhit",
+		"civilopediaText": [
+			{"text": "Front mode: a token whose zone of influence presses on the enemy territory around it. Choose its stance, and move it to direct the effort. It does not attack individual units."}
+		]
+	},	{
 		"name": "Warrior",
 		"unitType": "Sword",
 		"movement": 2,

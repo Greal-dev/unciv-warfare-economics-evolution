@@ -410,6 +410,9 @@ class GameInfo : IsPartOfGameInfoSerialization, HasGameInfoSerializationVersion 
         fun setNextPlayer() {
             playerIndex = (playerIndex + 1) % civilizations.size
             if (playerIndex == 0) {
+                // Front mode: every civilization has now ended its turn, so all orders are given -
+                // resolve the pressure of the divisions on the front for the whole round at once
+                com.unciv.logic.front.FrontResolver.resolveRound(this@GameInfo)
                 recordRankingStats()
                 turns++
                 if (DebugUtils.SIMULATE_UNTIL_TURN != 0)

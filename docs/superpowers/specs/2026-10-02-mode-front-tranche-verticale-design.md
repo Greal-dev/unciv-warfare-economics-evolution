@@ -75,7 +75,7 @@ D = somme de ( santé/100 × puissanceDeBase × coefficientDéfensif(posture) ×
 D = résistanceDeBase si aucune division ne couvre la case
 ```
 
-Le bonus défensif de la case reprend l'existant (terrain, aménagement : +10 % de base du fork). La sympathie culturelle reprend l'existant (±30 %). La résistance de base vaut `10 × (1 + bonus)`, ce qui représente une milice : un territoire dégarni tombe, lentement.
+Le bonus défensif de la case reprend l'existant (terrain, aménagement : +10 % de base du fork). La sympathie culturelle reprend l'existant (±30 %). La résistance de base vaut `6 × (1 + bonus)`, ce qui représente une milice : un territoire dégarni tombe, lentement.
 
 **Progression** de la case, en pourcentage du seuil de changement de propriétaire :
 
@@ -185,3 +185,12 @@ Fonctions pures de résolution testées hors interface, avec le jeu de test exis
 - Point d'effort explicite (une case visée) en plus de la position du jeton : repoussé après la tranche.
 - Valeur de la zone : rayon 2 fixe, ou croissant avec l'ère.
 - Gestion de la marine et de l'aviation face à des villes sans garnison.
+
+
+## Écarts constatés à l'implémentation
+
+- La Division se construit par le circuit normal (production ou achat de la ville), pas par un achat en or dédié. Le renfort de points de vie, lui, se paie en or.
+- Résistance de base de la milice fixée à 6 (au lieu de 10) : à 10, aucune case ne basculait avec les effectifs du scénario.
+- Interface : une seule action « Front stance » qui propose les quatre postures, la posture courante est mise en évidence. Les divisions n'ont ni fortification ni sommeil.
+- IA v0 : choix de la posture par ratio de forces et marche vers la ville ennemie la plus proche. Le recrutement reste celui de l'IA existante, la mise à l'échelle sur la longueur du front reste à faire.
+- Reste à faire : surbrillance de la zone et affichage de la progression des cases, neutralisation des mécaniques de garnison, commande de scénario et mesures sur 150 tours.
