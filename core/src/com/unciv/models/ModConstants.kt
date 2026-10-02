@@ -1,5 +1,6 @@
 package com.unciv.models
 
+import com.unciv.utils.withHash
 import java.lang.reflect.Modifier
 
 /** Used as a member of [ModOptions][com.unciv.models.ruleset.ModOptions] for moddable "constants" - factors in formulae and such.
@@ -84,14 +85,12 @@ class ModConstants {
 
     // MapGenerator.spreadAncientRuins: number of ruins = suitable tile count * this
     var ancientRuinCountMultiplier = 0.025f
-    // MapGenerator.spawnIce: spawn Ice where T < this, with T calculated from temperatureintensity, latitude and perlin noise.
-    var spawnIceBelowTemperature = -0.8f
     // MapGenerator.spawnLakesAndCoasts: Water bodies up to this tile count become Lakes
     var maxLakeSize = 10
     // RiverGenerator: river frequency and length bounds
     var riverCountMultiplier = 0.01f
     var minRiverLength = 5
-    var maxRiverLength = 666  // Do not set to less than the maximal map radius
+    var maxRiverLength = 666  // Do not set to less than the maximal map radius. Set to 0 to disable river generation.
 
     // Factors in formula for Maximum Number of foundable Religions
     var religionLimitBase = 1
@@ -159,7 +158,7 @@ class ModConstants {
         var result = 0
         for (field in this::class.java.declaredFields) {
             if (field.modifiers and Modifier.STATIC != 0) continue
-            result = result * 31 + field.get(this).hashCode()
+            result = result.withHash(field.get(this).hashCode())
         }
         return result
     }

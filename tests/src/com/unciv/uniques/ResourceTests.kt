@@ -6,16 +6,15 @@ import com.unciv.models.ruleset.BeliefType
 import com.unciv.models.ruleset.unique.Unique
 import com.unciv.models.ruleset.unique.UniqueTriggerActivation
 import com.unciv.models.ruleset.unique.UniqueType
-import com.unciv.testing.GdxTestRunner
+import com.unciv.testing.BaseTestRunner
 import com.unciv.testing.TestGame
 import org.junit.Assert
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
-import kotlin.math.roundToInt
 
 
-@RunWith(GdxTestRunner::class)
+@RunWith(BaseTestRunner::class)
 class ResourceTests {
     private val game = TestGame().apply { makeHexagonalMap(2) }
     private val civInfo = game.addCiv()
@@ -108,7 +107,7 @@ class ResourceTests {
     fun testImprovementProvidesResourceEvenWithoutTech() {
         val tile = game.tileMap[1,1]
         val improvement = game.createTileImprovement("Provides [1] [Coal]", "Consumes [1] [Silver]")
-        tile.setImprovement(improvement.name, civInfo)
+        tile.setImprovement(improvement, civInfo)
         Assert.assertTrue(civInfo.getCivResourcesByName()["Coal"] == 1)
         Assert.assertTrue(civInfo.getCivResourcesByName()["Silver"] == -1)
     }
@@ -118,7 +117,7 @@ class ResourceTests {
     fun testImprovementProvidesResourceWithUniqueBonuses() {
         val tile = game.tileMap[1,1]
         val improvement = game.createTileImprovement("Provides [1] [Coal]")
-        tile.setImprovement(improvement.name, civInfo)
+        tile.setImprovement(improvement, civInfo)
         Assert.assertTrue(civInfo.getCivResourcesByName()["Coal"] == 1)
 
         val doubleCoal = game.createBuilding("[+100]% [Coal] resource production")
@@ -150,7 +149,7 @@ class ResourceTests {
         val tile = game.getTile(1,1)
         tile.setTileResource("Iron")
         tile.resourceAmount = 4
-        tile.improvement = "Mine"
+        tile.setImprovementBasic("Mine")
 
         // when
         val cityResources = city.getResourcesGeneratedByCity()
@@ -297,10 +296,10 @@ class ResourceTests {
         game.getTile(1,1).addTerrainFeature("Oasis")
 
         // when
-        game.getTile(1,1).setImprovement(resourceImprovement.name)
+        game.getTile(1,1).setImprovement(resourceImprovement)
 
         // then
-        val resourceAmountInCapital = city.getAvailableResourceAmount(resource.name)
+        val resourceAmountInCapital = city.getAvailableResourceAmount(resource)
         assert(resourceAmountInCapital == 0)
     }
 

@@ -7,7 +7,9 @@ import com.unciv.logic.civilization.NotificationCategory
 import com.unciv.logic.civilization.NotificationIcon
 import com.unciv.models.Counter
 import com.unciv.models.Religion
+import com.unciv.models.ruleset.unique.GameContext
 import com.unciv.models.ruleset.unique.Unique
+import com.unciv.models.ruleset.unique.UniqueMap.Companion.NO_UNIQUE_FILTER
 import com.unciv.models.ruleset.unique.UniqueType
 import com.unciv.ui.components.extensions.toPercent
 import yairm210.purity.annotations.Readonly
@@ -59,15 +61,32 @@ class CityReligionManager : IsPartOfGameInfoSerialization {
     }
 
     @Readonly
+    @Deprecated(message = "forEachUnique is faster. If not viable, then this can still be used",
+        replaceWith = ReplaceWith("forEachUnique"))
     fun getUniques(uniqueType: UniqueType): Sequence<Unique> {
         val majorityReligion = getMajorityReligion() ?: return emptySequence()
         return majorityReligion.followerBeliefUniqueMap.getUniques(uniqueType)
     }
 
     @Readonly
+    fun forEachMatchingUnique(uniqueType: UniqueType, gameContext: GameContext=city.state, op: (unique: Unique)->Unit)
+        = forEachMatchingUnique(uniqueType, gameContext, NO_UNIQUE_FILTER, op)
+    @Readonly
+    fun forEachMatchingUnique(uniqueType: UniqueType, gameContext: GameContext=city.state, filter:(Unique)->Boolean, op: (unique: Unique)->Unit) {
+        val majorityReligion = getMajorityReligion() ?: return
+        majorityReligion.followerBeliefUniqueMap.forEachMatchingUnique(uniqueType, gameContext, filter, op)
+    }
+
+    @Readonly
     fun getAllUniques(): Sequence<Unique> {
         val majorityReligion = getMajorityReligion() ?: return emptySequence()
         return majorityReligion.followerBeliefUniqueMap.getAllUniques()
+    }
+
+    @Readonly
+    fun forEachUnique(filter:(Unique)->Boolean, op: (unique: Unique)->Unit) {
+        val majorityReligion = getMajorityReligion() ?: return
+        majorityReligion.followerBeliefUniqueMap.forEachUnique(filter, op)
     }
 
     @Readonly fun getPressures(): Counter<String> = pressures.clone()
@@ -265,14 +284,15 @@ class CityReligionManager : IsPartOfGameInfoSerialization {
     private fun getSpreadRange(): Int {
         var spreadRange = 10
 
-        for (unique in city.getMatchingUniques(UniqueType.ReligionSpreadDistance)) {
+        city.forEachMatchingUnique(UniqueType.ReligionSpreadDistance) { unique ->
             spreadRange += unique.params[0].toInt()
         }
 
         val majorityReligion = getMajorityReligion()
         if (majorityReligion != null) {
-            for (unique in majorityReligion.foundingCiv.getMatchingUniques(UniqueType.ReligionSpreadDistance))
+            majorityReligion.foundingCiv.forEachMatchingUnique(UniqueType.ReligionSpreadDistance) { unique ->
                 spreadRange += unique.params[0].toInt()
+            }
         }
 
         return spreadRange
@@ -319,7 +339,7 @@ class CityReligionManager : IsPartOfGameInfoSerialization {
         var pressure = pressureFromAdjacentCities.toFloat()
 
         // Follower beliefs of this religion
-        for (unique in city.getMatchingUniques(UniqueType.NaturalReligionSpreadStrength)) {
+        city.forEachMatchingUnique(UniqueType.NaturalReligionSpreadStrength) { unique ->
             if (pressuredCity.matchesFilter(unique.params[1]))
                 pressure *= unique.params[0].toPercent()
         }
@@ -327,9 +347,10 @@ class CityReligionManager : IsPartOfGameInfoSerialization {
         // Founder beliefs of this religion
         val majorityReligion = getMajorityReligion()
         if (majorityReligion != null) {
-            for (unique in majorityReligion.foundingCiv.getMatchingUniques(UniqueType.NaturalReligionSpreadStrength))
+            majorityReligion.foundingCiv.forEachMatchingUnique(UniqueType.NaturalReligionSpreadStrength) { unique ->
                 if (pressuredCity.matchesFilter(unique.params[1]))
                     pressure *= unique.params[0].toPercent()
+            }
         }
 
         return pressure.toInt()

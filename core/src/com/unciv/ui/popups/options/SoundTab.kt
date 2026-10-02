@@ -21,7 +21,7 @@ internal class SoundTab(
         addCitySoundsVolumeSlider(settings)
 
         if (music.isVoicesAvailable())
-            addVoicesVolumeSlider(settings)
+            addVoicesVolumeSlider(settings, music)
 
         if (music.isMusicAvailable())
             addMusicControls(settings, music)
@@ -34,7 +34,7 @@ internal class SoundTab(
 
     private fun addDownloadMusic() {
         val downloadMusicButton = "Download music".toTextButton()
-        add(downloadMusicButton).colspan(2).row()
+        add(downloadMusicButton).colspan(2).padTop(20f).row()
         val errorTable = Table()
         add(errorTable).colspan(2).row()
 

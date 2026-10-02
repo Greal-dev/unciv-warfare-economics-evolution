@@ -83,13 +83,13 @@ class MajorCivDiplomacyTable(private val diplomacyScreen: DiplomacyScreen) {
             // Territorial peace: open trade screen with peace treaty pre-included in our offer
             val territorialPeaceButton = "Negotiate territorial peace".toTextButton()
             territorialPeaceButton.onClick {
-                UncivGame.Current.pushScreen(
+                UncivGame.Current.pushScreen {
                     com.unciv.ui.screens.territoryscreen.TerritoryExchangeScreen(
                         viewingCiv, otherCiv,
                         com.unciv.ui.screens.territoryscreen.TerritoryExchangeMode.MajorCivNegotiation,
                         includePeaceInOffer = true
                     )
-                )
+                }
             }
             if (diplomacyScreen.isNotPlayersTurn()) territorialPeaceButton.disable()
             diplomacyTable.add(territorialPeaceButton).row()
@@ -99,12 +99,12 @@ class MajorCivDiplomacyTable(private val diplomacyScreen: DiplomacyScreen) {
         if (!viewingCiv.isAtWarWith(otherCiv) && otherCiv.isVassal() && otherCiv.vassalOf == viewingCiv.civName) {
             val territoryExchangeButton = "Territory Exchange".toTextButton()
             territoryExchangeButton.onClick {
-                UncivGame.Current.pushScreen(
+                UncivGame.Current.pushScreen {
                     com.unciv.ui.screens.territoryscreen.TerritoryExchangeScreen(
                         viewingCiv, otherCiv,
                         com.unciv.ui.screens.territoryscreen.TerritoryExchangeMode.VassalDirective
                     )
-                )
+                }
             }
             if (diplomacyScreen.isNotPlayersTurn()) territoryExchangeButton.disable()
             diplomacyTable.add(territoryExchangeButton).row()
@@ -114,12 +114,12 @@ class MajorCivDiplomacyTable(private val diplomacyScreen: DiplomacyScreen) {
         if (!viewingCiv.isAtWarWith(otherCiv) && !otherCiv.isVassal() && !viewingCiv.isVassal()) {
             val territoryTradeButton = "Propose Territory Trade".toTextButton()
             territoryTradeButton.onClick {
-                UncivGame.Current.pushScreen(
+                UncivGame.Current.pushScreen {
                     com.unciv.ui.screens.territoryscreen.TerritoryExchangeScreen(
                         viewingCiv, otherCiv,
                         com.unciv.ui.screens.territoryscreen.TerritoryExchangeMode.MajorCivNegotiation
                     )
-                )
+                }
             }
             if (diplomacyScreen.isNotPlayersTurn()) territoryTradeButton.disable()
             diplomacyTable.add(territoryTradeButton).row()
@@ -136,9 +136,9 @@ class MajorCivDiplomacyTable(private val diplomacyScreen: DiplomacyScreen) {
         // TW: open the coalition-formation screen (multilateral war planning)
         val coalitionButton = "Form coalition...".toTextButton()
         coalitionButton.onClick {
-            UncivGame.Current.pushScreen(
+            UncivGame.Current.pushScreen {
                 com.unciv.ui.screens.coalitionscreen.CoalitionScreen(viewingCiv)
-            )
+            }
         }
         if (diplomacyScreen.isNotPlayersTurn()) coalitionButton.disable()
         diplomacyTable.add(coalitionButton).row()
@@ -148,7 +148,7 @@ class MajorCivDiplomacyTable(private val diplomacyScreen: DiplomacyScreen) {
 
         if (otherCiv.isHuman())
             diplomacyTable.add(diplomacyScreen.getHumanRelationshipTable(otherCivDiplomacyManager)).row()
-        else { 
+        else {
             diplomacyTable.add(diplomacyScreen.getRelationshipTable(otherCivDiplomacyManager)).row()
             diplomacyTable.add(getDiplomacyModifiersTable(otherCivDiplomacyManager)).row()
         }
@@ -186,8 +186,8 @@ class MajorCivDiplomacyTable(private val diplomacyScreen: DiplomacyScreen) {
         negotiatePeaceButton.onClick {
             val tradeTable = diplomacyScreen.setTrade(otherCiv)
             val peaceTreaty = TradeOffer(Constants.peaceTreaty, TradeOfferType.Treaty, speed = viewingCiv.gameInfo.speed)
-            tradeTable.tradeLogic.currentTrade.theirOffers.add(peaceTreaty)
-            tradeTable.tradeLogic.currentTrade.ourOffers.add(peaceTreaty)
+            tradeTable.tradeView.theirStagedOffers().add(peaceTreaty)
+            tradeTable.tradeView.ourStagedOffers().add(peaceTreaty)
             tradeTable.offerColumnsTable.update()
             tradeTable.enableOfferButton(true)
         }
@@ -273,7 +273,7 @@ class MajorCivDiplomacyTable(private val diplomacyScreen: DiplomacyScreen) {
                 promisesTable.add(text.toLabel(Color.LIGHT_GRAY)).row()
             }
         }
-        
+
         return if (promisesTable.cells.isEmpty) null else promisesTable
     }
 
@@ -301,10 +301,13 @@ class MajorCivDiplomacyTable(private val diplomacyScreen: DiplomacyScreen) {
         demandsTable.defaults().pad(10f)
 
         val diplomacyManager = viewingCiv.getDiplomacyManager(otherCiv)!!
-        
-        for (demand in Demand.entries){
+
+        for (demand in Demand.entries) {
+            if (!demand.show(viewingCiv))
+                continue
+
             val button = demand.demandText.toTextButton()
-            
+
             if (otherCiv.popupAlerts.any { it.type == demand.demandAlert && it.value == viewingCiv.civID } // Already demanded
                 || diplomacyManager.hasFlag(demand.agreedToDemand)) { // already agreed
                 button.disable()

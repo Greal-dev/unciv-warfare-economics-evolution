@@ -1,5 +1,6 @@
 package com.unciv.logic.city.managers
 
+import com.unciv.logic.automation.Timers.Companion.timeThis
 import com.unciv.logic.city.City
 import com.unciv.logic.city.CityFlags
 import com.unciv.logic.city.CityFocus
@@ -8,13 +9,14 @@ import com.unciv.logic.civilization.LocationAction
 import com.unciv.logic.civilization.NotificationCategory
 import com.unciv.logic.civilization.NotificationIcon
 import com.unciv.logic.civilization.OverviewAction
+import com.unciv.models.ruleset.Building
+import com.unciv.models.ruleset.INonPerpetualConstruction
 import com.unciv.models.ruleset.tile.ResourceType
 import com.unciv.models.ruleset.unique.UniqueTriggerActivation
 import com.unciv.models.ruleset.unique.UniqueType
 import com.unciv.ui.screens.overviewscreen.EmpireOverviewCategories
 import kotlin.math.ceil
 import kotlin.math.roundToInt
-import kotlin.random.Random
 
 class CityTurnManager(val city: City) {
 
@@ -101,7 +103,7 @@ class CityTurnManager(val city: City) {
     }
 
 
-    fun startTurn() {
+    fun startTurn():Unit = timeThis("CityTurnManager.startTurn") {
         city.clearCaches()
         // TW v2: keep tilesInRange in sync with the era-progressive work radius.
         city.tilesInRange = city.getCenterTile().getTilesInDistance(city.getWorkRange()).toHashSet()
@@ -176,6 +178,8 @@ class CityTurnManager(val city: City) {
             city.setCityFocus(CityFocus.GoldFocus)
             city.reassignAllPopulation()
         } else if (city.shouldReassignPopulation || city.civ.isAI()) {
+            if (city.civ.isAI())
+                city.setCityFocus(chooseCityFocus())
             city.reassignPopulation()  // includes cityStats.update
         } else
             city.cityStats.update()
@@ -186,24 +190,39 @@ class CityTurnManager(val city: City) {
         }
     }
     
+    private fun chooseCityFocus(): CityFocus {
+        // Small cities focus on growing, following Vox Populi.
+        if (city.population.population <= 3) return CityFocus.NoFocus
+        val construction = city.cityConstructions.getCurrentConstruction()
+        // Focus citizens on production while the city builds a world wonder or spaceship part.
+        if (construction is Building && construction.isWonder) return CityFocus.ProductionFocus
+        if (construction is INonPerpetualConstruction && construction.hasUnique(UniqueType.SpaceshipPart))
+            return CityFocus.ProductionFocus
+        return CityFocus.NoFocus
+    }
+
     private fun setWltkResourceDemandCooldown(isNewCity: Boolean) {
+        val rng = city.state.stateBasedRandom("CityTurnManager.setWltkResourceDemandCooldown")
         // Demand a new resource in ~20 turns on Standard speed
-        var duration = 15 + Random.Default.nextInt(10)
+        var duration = 15 + rng.nextInt(10)
         if (isNewCity && city.isCapital())
             duration += 10
-        duration = (duration * city.civ.gameInfo.speed.modifier).roundToInt()
-        city.setFlag(CityFlags.ResourceDemand, duration)
+        city.setFlag(CityFlags.ResourceDemand, duration, true)
     }
 
     private fun tryWeLoveTheKing() {
         if (city.demandedResource == "") return
-        if (city.getAvailableResourceAmount(city.demandedResource) > 0) {
-            val duration = (20 * city.civ.gameInfo.speed.modifier).roundToInt() + 1 // +1 because it will be decremented by 1 in the same startTurn()
-            city.setFlag(CityFlags.WeLoveTheKing, duration) 
-            city.civ.addNotification(
-                "Because they have [${city.demandedResource}], the citizens of [${city.name}] are celebrating We Love The King Day!",
-                CityAction.withLocation(city), NotificationCategory.General, NotificationIcon.City, NotificationIcon.Happiness)
-        }
+        if (city.getAvailableResourceAmount(city.demandedResource) <= 0) return
+
+        // manually adjust with game speed because of the +1 at the end
+        val duration = (20 * city.civ.gameInfo.speed.modifier).roundToInt() + 1 // +1 because it will be decremented by 1 in the same startTurn()
+        city.setFlag(CityFlags.WeLoveTheKing, duration)
+        // Otherwise ResourceDemand can expire mid-celebration, rewrite demandedResource,
+        // and the Resources overview mislabels the active WLTKD (celebration is flag-based).
+        city.removeFlag(CityFlags.ResourceDemand)
+        city.civ.addNotification(
+            "Because they have [${city.demandedResource}], the citizens of [${city.name}] are celebrating We Love The King Day!",
+            CityAction.withLocation(city), NotificationCategory.General, NotificationIcon.City, NotificationIcon.Happiness)
     }
 
     // cf DiplomacyManager nextTurnFlags
@@ -217,7 +236,10 @@ class CityTurnManager(val city: City) {
 
                 when (flag) {
                     CityFlags.ResourceDemand.name -> {
-                        demandNewResource()
+                        // WLTKD end already demands the next resource; demanding while celebrating
+                        // overwrites demandedResource and mislabels the active celebration in the UI
+                        if (!city.hasFlag(CityFlags.WeLoveTheKing))
+                            demandNewResource()
                     }
                     CityFlags.WeLoveTheKing.name -> {
                         city.civ.addNotification(
@@ -238,6 +260,7 @@ class CityTurnManager(val city: City) {
 
 
     private fun demandNewResource() {
+        val rng = city.state.stateBasedRandom("CityTurnManager.demandNewResource")
         val candidates = city.getRuleset().tileResources.values.filter {
             it.resourceType == ResourceType.Luxury && // Must be luxury
                     !it.hasUnique(UniqueType.CityStateOnlyResource) && // Not a city-state only resource eg jewelry
@@ -248,11 +271,11 @@ class CityTurnManager(val city: City) {
         val missingResources = candidates.filter { !city.civ.hasResource(it) }
         
         if (missingResources.isEmpty()) { // hooray happpy day forever!
-            city.demandedResource = candidates.randomOrNull()?.name ?: ""
+            city.demandedResource = candidates.randomOrNull(rng)?.name ?: ""
             return // actually triggering "wtlk" is done in tryWeLoveTheKing(), *next turn*
         }
 
-        val chosenResource = missingResources.randomOrNull()
+        val chosenResource = missingResources.randomOrNull(rng)
         
         city.demandedResource = chosenResource?.name ?: "" // mods may have no resources as candidates even
         setWltkResourceDemandCooldown(false)
@@ -264,7 +287,7 @@ class CityTurnManager(val city: City) {
     }
 
 
-    fun endTurn() {
+    fun endTurn():Unit = timeThis("CityTurnManager.endTurn") {
         for (unique in city.getTriggeredUniques(UniqueType.TriggerUponTurnEnd, includeCivUniques = false).toList()) {
             UniqueTriggerActivation.triggerUnique(unique, city)
         }
@@ -273,9 +296,10 @@ class CityTurnManager(val city: City) {
         city.cityConstructions.endTurn(stats)
         city.expansion.nextTurn(stats.culture)
         if (city.isBeingRazed) {
-            val removedPopulation =
-                    1 + city.civ.getMatchingUniques(UniqueType.CitiesAreRazedXTimesFaster)
-                        .sumOf { it.params[0].toInt() - 1 }
+            var removedPopulation = 1
+            city.civ.forEachMatchingUnique(UniqueType.CitiesAreRazedXTimesFaster) {
+                removedPopulation += it.params[0].toInt() - 1
+            }
 
             if (city.population.population <= removedPopulation) {
                 city.espionage.removeAllPresentSpies(SpyFleeReason.Other)

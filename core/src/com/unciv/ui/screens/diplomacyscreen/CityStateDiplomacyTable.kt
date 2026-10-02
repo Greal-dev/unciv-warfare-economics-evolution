@@ -11,7 +11,7 @@ import com.unciv.logic.civilization.AlertType
 import com.unciv.logic.civilization.Civilization
 import com.unciv.logic.civilization.PopupAlert
 import com.unciv.logic.civilization.diplomacy.*
-import com.unciv.logic.civilization.managers.AssignedQuest
+import com.unciv.logic.civilization.managers.quests.AssignedQuest
 import com.unciv.logic.trade.TradeLogic
 import com.unciv.logic.trade.TradeOffer
 import com.unciv.logic.trade.TradeOfferType
@@ -82,9 +82,9 @@ class CityStateDiplomacyTable(private val diplomacyScreen: DiplomacyScreen) {
         if (!viewingCiv.isAtWarWith(otherCiv) && !diplomacyScreen.isNotPlayersTurn()) {
             val territoryExchangeButton = "Territory Exchange".toTextButton()
             territoryExchangeButton.onClick {
-                com.unciv.UncivGame.Current.pushScreen(
+                com.unciv.UncivGame.Current.pushScreen {
                     com.unciv.ui.screens.territoryscreen.TerritoryExchangeScreen(viewingCiv, otherCiv)
-                )
+                }
             }
             diplomacyTable.add(territoryExchangeButton).row()
         }
@@ -158,7 +158,10 @@ class CityStateDiplomacyTable(private val diplomacyScreen: DiplomacyScreen) {
                     newProtectors.add(protector.civName.tr())
             }
             val protectorString = "{Protected by}: " + newProtectors.joinToString(", ")
-            diplomacyTable.add(protectorString.toLabel()).row()
+            diplomacyTable.add(protectorString.toLabel().apply {
+                wrap = true
+                setAlignment(Align.center)
+            }).width(diplomacyScreen.rightSideLabelWidth()).row()
         }
 
         val atWar = otherCiv.isAtWarWith(viewingCiv)
@@ -389,7 +392,7 @@ class CityStateDiplomacyTable(private val diplomacyScreen: DiplomacyScreen) {
                     improveTileButton.onClick {
                         viewingCiv.addGold(-200)
                         improvableTile.stopWorkingOnImprovement()
-                        improvableTile.setImprovement(tileImprovement.name)
+                        improvableTile.setImprovement(tileImprovement, otherCiv)
                         otherCiv.cache.updateCivResources()
                         diplomacyScreen.rightSideTable.clear()
                         diplomacyScreen.rightSideTable.add(ScrollPane(getCityStateDiplomacyTable(otherCiv)))

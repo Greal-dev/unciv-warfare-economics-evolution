@@ -7,6 +7,7 @@ import com.unciv.logic.civilization.Civilization
 import com.unciv.ui.components.extensions.addSeparator
 import com.unciv.ui.components.extensions.toLabel
 import com.unciv.ui.components.fonts.Fonts
+import com.unciv.view.CivView
 
 /**
  * TW v2 — Science ranking tab.
@@ -16,10 +17,13 @@ import com.unciv.ui.components.fonts.Fonts
  * The leader is highlighted gold. Unmet civs appear as "?" rows for completeness.
  */
 class ScienceRankingTab(
-    viewingPlayer: Civilization,
+    viewingPlayer: CivView,
     overviewScreen: EmpireOverviewScreen,
     persistedData: EmpireOverviewTabPersistableData? = null
 ) : EmpireOverviewTab(viewingPlayer, overviewScreen) {
+
+    /** TW: this fork-only tab works on the logic objects, not on views */
+    private val tabCiv: Civilization = viewingPlayer.getCiv()
 
     private companion object {
         const val pad = 8f
@@ -50,7 +54,7 @@ class ScienceRankingTab(
 
         val rows = gameInfo.civilizations.asSequence()
             .filter { it.isMajorCiv() && !it.isDefeated() && it.cities.isNotEmpty() }
-            .filter { it == viewingPlayer || viewingPlayer.knows(it) }
+            .filter { it == tabCiv || tabCiv.knows(it) }
             .map { civ ->
                 val raw = civ.stats.statsForNextTurn.science
                 val ratio = if (leaderRaw > 0f) (raw / leaderRaw).coerceIn(0f, 1f) else 1f
@@ -73,7 +77,7 @@ class ScienceRankingTab(
             val isLeader = row.civ.civID == leaderId
             val nameColor = when {
                 isLeader -> Color.GOLD
-                row.civ == viewingPlayer -> Color.CYAN
+                row.civ == tabCiv -> Color.CYAN
                 else -> Color.WHITE
             }
             val nameText = if (isLeader) "${row.civ.civName} ★" else row.civ.civName

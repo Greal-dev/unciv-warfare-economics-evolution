@@ -1808,7 +1808,8 @@ object TileCultureLogic {
         gameInfo.civilizations.add(newCsCiv)
         newCsCiv.setNationTransient()
         newCsCiv.setTransients()
-        newCsCiv.cityStateFunctions.initCityState(ruleset, gameInfo.gameParameters.startingEra, emptySequence())
+        newCsCiv.cityStateFunctions.initCityState(ruleset, gameInfo.gameParameters.startingEra, emptySequence(),
+            com.unciv.models.ruleset.unique.GameContext(gameInfo = gameInfo).stateBasedRandom("TileCultureLogic.initCityState"))
 
         // Transfer the city
         city.moveToCiv(newCsCiv)

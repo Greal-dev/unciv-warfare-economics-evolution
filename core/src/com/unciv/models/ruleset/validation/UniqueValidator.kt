@@ -20,7 +20,7 @@ import yairm210.purity.annotations.LocalState
 import yairm210.purity.annotations.Pure
 import yairm210.purity.annotations.Readonly
 
-class UniqueValidator(val ruleset: Ruleset) {
+class UniqueValidator(val ruleset: Ruleset, private val tryFixUnknownUniques: Boolean = false) {
 
     /** Used to determine if certain uniques are used for filtering */
     private val allNonTypedUniques = HashSet<String>()
@@ -49,18 +49,37 @@ class UniqueValidator(val ruleset: Ruleset) {
     fun checkUniques(
         uniqueContainer: IHasUniques,
         lines: RulesetErrorList,
-        reportRulesetSpecificErrors: Boolean,
-        tryFixUnknownUniques: Boolean
+        reportRulesetSpecificErrors: Boolean
     ) {
+        val baseSeverities = if (reportRulesetSpecificErrors) allParameterSeverities else extensionModParameterSeverities
         for (unique in uniqueContainer.uniqueObjects) {
-            val errors = checkUnique(
-                unique,
-                tryFixUnknownUniques,
-                uniqueContainer,
-                reportRulesetSpecificErrors
-            )
+            val severities = if (isDisabledByModConditionals(unique)) disabledUniqueParameterSeverities else baseSeverities
+            val errors = checkUnique(unique, uniqueContainer, severities)
             lines.addAll(errors)
         }
+    }
+
+    /** Returns true if [unique] has a [UniqueType.ConditionalModEnabled] or [UniqueType.ConditionalModNotEnabled]
+     *  modifier that is not satisfied by the mods present in [ruleset], meaning the unique will
+     *  never be active in this ruleset and should be excluded from ruleset-specific validation.*/
+    @Readonly
+    private fun isDisabledByModConditionals(unique: Unique): Boolean {
+        for (modifier in unique.modifiers) {
+            when (modifier.type) {
+                UniqueType.ConditionalModEnabled -> {
+                    val filter = modifier.params[0]
+                    if (ruleset.mods.none { ModCompatibility.modNameFilter(it, filter) })
+                        return true
+                }
+                UniqueType.ConditionalModNotEnabled -> {
+                    val filter = modifier.params[0]
+                    if (ruleset.mods.any { ModCompatibility.modNameFilter(it, filter) })
+                        return true
+                }
+                else -> {}
+            }
+        }
+        return false
     }
 
     private val performanceHeavyConditionals = setOf(UniqueType.ConditionalNeighborTiles, UniqueType.ConditionalAdjacentTo,
@@ -70,12 +89,16 @@ class UniqueValidator(val ruleset: Ruleset) {
     @Readonly
     fun checkUnique(
         unique: Unique,
-        tryFixUnknownUniques: Boolean,
         uniqueContainer: IHasUniques?,
-        reportRulesetSpecificErrors: Boolean
+        severityToReport: Set<UniqueType.UniqueParameterErrorSeverity> = allParameterSeverities
     ): RulesetErrorList {
+        val reportRulesetSpecificErrors = UniqueType.UniqueParameterErrorSeverity.RulesetSpecific in severityToReport
         val prefix by lazy { getUniqueContainerPrefix(uniqueContainer) + "\"${unique.text}\"" }
-        if (unique.type == null) return checkUntypedUnique(unique, tryFixUnknownUniques, uniqueContainer, prefix, reportRulesetSpecificErrors)
+        if (unique.type == null) {
+            if (unique.deprecatedType != null && reportRulesetSpecificErrors)
+                return getDeprecationAnnotationErrors(unique, prefix, uniqueContainer)
+            return checkUntypedUnique(unique, uniqueContainer, prefix, reportRulesetSpecificErrors)
+        }
 
         val rulesetErrors = RulesetErrorList(ruleset)
 
@@ -89,13 +112,13 @@ class UniqueValidator(val ruleset: Ruleset) {
 
         val typeComplianceErrors = getComplianceErrors(unique)
         for (complianceError in typeComplianceErrors) {
-            if (!reportRulesetSpecificErrors && complianceError.errorSeverity == UniqueType.UniqueParameterErrorSeverity.RulesetSpecific)
+            if (complianceError.errorSeverity !in severityToReport)
                 continue
 
             var text = "$prefix contains parameter \"${complianceError.parameterName}\", $whichDoesNotFitParameterType" +
                     " ${complianceError.acceptableParameterTypes.joinToString(" or ") { it.parameterName }} !"
 
-            text = addPossibleMisspellings(complianceError, text)
+            if (tryFixUnknownUniques) text = addPossibleMisspellings(complianceError, text)
 
             rulesetErrors.add(
                 text,
@@ -106,7 +129,7 @@ class UniqueValidator(val ruleset: Ruleset) {
         }
 
         for (modifier in unique.modifiers) {
-            rulesetErrors += getModifierErrors(modifier, prefix, unique, uniqueContainer, reportRulesetSpecificErrors)
+            rulesetErrors += getModifierErrors(modifier, prefix, unique, uniqueContainer, severityToReport)
         }
 
         rulesetErrors += getUniqueTypeSpecificErrors(prefix, unique, uniqueContainer, reportRulesetSpecificErrors)
@@ -208,10 +231,10 @@ class UniqueValidator(val ruleset: Ruleset) {
         prefix: String,
         unique: Unique,
         uniqueContainer: IHasUniques?,
-        reportRulesetSpecificErrors: Boolean
+        severityToReport: Set<UniqueType.UniqueParameterErrorSeverity>
     ): RulesetErrorList {
         val rulesetErrors = RulesetErrorList()
-        if (unique.hasFlag(UniqueFlag.NoConditionals)) {
+        if (unique.hasFlag(UniqueFlag.NoConditionals) && modifier.type?.canAcceptUniqueTarget(UniqueTarget.MetaModifier) != true) {
             rulesetErrors.add(
                 "$prefix contains the conditional \"${modifier.text}\"," +
                     " but the unique does not accept conditionals!",
@@ -267,7 +290,7 @@ class UniqueValidator(val ruleset: Ruleset) {
         if (unique.type in resourceUniques)
             for ((index, param) in modifier.params.withIndex()){
                 if (ruleset.tileResources[param]?.isCityWide != true) continue
-                if (unique.type!!.parameterTypeMap.getOrNull(index)?.contains(UniqueParameterType.Countable) != true) continue
+                if (modifier.type.parameterTypeMap.getOrNull(index)?.contains(UniqueParameterType.Countable) != true) continue
 
                 rulesetErrors.add(
                     "$prefix contains the modifier \"${modifier.text}\"," +
@@ -280,15 +303,15 @@ class UniqueValidator(val ruleset: Ruleset) {
             getComplianceErrors(modifier)
 
         for (complianceError in conditionalComplianceErrors) {
-            if (!reportRulesetSpecificErrors && complianceError.errorSeverity == UniqueType.UniqueParameterErrorSeverity.RulesetSpecific)
+            if (complianceError.errorSeverity !in severityToReport)
                 continue
 
             var text = "$prefix contains modifier \"${modifier.text}\"." +
                     " This contains the parameter \"${complianceError.parameterName}\" $whichDoesNotFitParameterType" +
                     " ${complianceError.acceptableParameterTypes.joinToString(" or ") { it.parameterName }} !"
-            
-            text = addPossibleMisspellings(complianceError, text)
-            
+
+            if (tryFixUnknownUniques) text = addPossibleMisspellings(complianceError, text)
+
             rulesetErrors.add(text,
                 complianceError.errorSeverity.getRulesetErrorSeverity(), uniqueContainer, unique)
 
@@ -403,7 +426,6 @@ class UniqueValidator(val ruleset: Ruleset) {
     @Readonly
     private fun checkUntypedUnique(
         unique: Unique,
-        tryFixUnknownUniques: Boolean,
         uniqueContainer: IHasUniques?,
         prefix: String,
         reportRulesetSpecificErrors: Boolean
@@ -476,6 +498,17 @@ class UniqueValidator(val ruleset: Ruleset) {
 
     companion object {
         const val whichDoesNotFitParameterType = "which does not fit parameter type"
+
+        /** All parameter error severities — used when validating a complete base ruleset. */
+        val allParameterSeverities = UniqueType.UniqueParameterErrorSeverity.entries.toSet()
+        /** Skips [UniqueType.UniqueParameterErrorSeverity.RulesetSpecific] — used for extension mods
+         *  that are validated standalone, without their base ruleset mixed in. */
+        val extensionModParameterSeverities = UniqueType.UniqueParameterErrorSeverity.entries
+            .filter { it != UniqueType.UniqueParameterErrorSeverity.RulesetSpecific }.toSet()
+        /** Only [UniqueType.UniqueParameterErrorSeverity.RulesetInvariant] — used when a unique is
+         *  disabled in this ruleset via a mod-enabled conditional, so ruleset-dependent parameters
+         *  are irrelevant, but fundamentally malformed values are still worth flagging. */
+        val disabledUniqueParameterSeverities = setOf(UniqueType.UniqueParameterErrorSeverity.RulesetInvariant)
 
         @Readonly
         internal fun getUniqueContainerPrefix(uniqueContainer: IHasUniques?) =

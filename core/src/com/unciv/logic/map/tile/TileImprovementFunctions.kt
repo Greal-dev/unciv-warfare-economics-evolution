@@ -7,11 +7,13 @@ import com.unciv.logic.civilization.NotificationCategory
 import com.unciv.logic.civilization.NotificationIcon
 import com.unciv.logic.civilization.managers.ImprovementFunctions
 import com.unciv.logic.map.mapunit.MapUnit
+import com.unciv.models.ruleset.tile.TerrainType
 import com.unciv.models.ruleset.tile.TileImprovement
 import com.unciv.models.ruleset.unique.GameContext
 import com.unciv.models.ruleset.unique.UniqueTriggerActivation
 import com.unciv.models.ruleset.unique.UniqueType
 import com.unciv.models.stats.Stats
+import org.jetbrains.annotations.VisibleForTesting
 import yairm210.purity.annotations.LocalState
 import yairm210.purity.annotations.Readonly
 
@@ -102,7 +104,7 @@ class TileImprovementFunctions(val tile: Tile) {
             // Then we check if there is any reason to not allow this improvement to be built
 
             // Can't build if there is already an irremovable improvement here
-            tile.improvement != null && tile.getTileImprovement()!!.hasUnique(UniqueType.Irremovable, gameContext) -> false
+            tile.tileImprovement != null && tile.tileImprovement!!.hasUnique(UniqueType.Irremovable, gameContext) -> false
 
             // Can't build if this terrain is unbuildable, except when we are specifically allowed to
             tile.lastTerrain.unbuildable && !improvement.canBeBuiltOnThisUnbuildableTerrain(knownFeatureRemovals) -> false
@@ -146,67 +148,133 @@ class TileImprovementFunctions(val tile: Tile) {
                     && tile.isAdjacentTo(Constants.freshWater) -> true
 
             // I don't particularly like this check, but it is required to build mines on non-hill resources
-            resourceIsVisible && tile.tileResource!!.isImprovedBy(improvement.name) -> true
+            resourceIsVisible && tile.tileResource!!.isImprovedBy(improvement.name)
+                && extendedDomainCheck(improvement) -> true
             // No reason this improvement should be built here, so can't build it
             else -> false
         }
     }
 
-
-    fun setImprovement(improvementName: String?,
-                          /** For road assignment and taking over tiles - DO NOT pass when simulating improvement effects! */
-                          civToActivateBroaderEffects: Civilization? = null, unit: MapUnit? = null) {
-        val improvementObject = tile.ruleset.tileImprovements[improvementName]
-
-        var improvementFieldHasChanged = false
-        when {
-            improvementName?.startsWith(Constants.remove) == true -> {
-                activateRemovalImprovement(improvementName, civToActivateBroaderEffects)
-            }
-            improvementName == RoadStatus.Road.name -> tile.setRoadStatus(RoadStatus.Road, civToActivateBroaderEffects)
-            improvementName == RoadStatus.Railroad.name -> tile.setRoadStatus(RoadStatus.Railroad, civToActivateBroaderEffects)
-            improvementName == Constants.repair -> tile.setRepaired()
-            else -> {
-                tile.improvementIsPillaged = false
-                tile.improvement = improvementName
-                tile.improvementTurnBuilt = civToActivateBroaderEffects?.gameInfo?.turns ?: -1
-                improvementFieldHasChanged = true
-                if (improvementName != null && (improvementObject!!.hasUnique(UniqueType.Irremovable) || tile.isMarkedForCreatesOneImprovement(improvementName))) {
-                    // I'm not sure what would happen if we try to replace an irremovable improvement
-                    // Let's not cancel our "Districts" in progress unless when finishing it (don't mess it up with accidental worker movements etc.)
-                    removeCreatesOneImprovementMarker()
-                }
+    /** Helper for the "build mines on non-hill resources" branch above:
+     *  Verifies not to allow land improvements on water and vice versa.
+     */
+    @Readonly
+    @VisibleForTesting
+    fun extendedDomainCheck(improvement: TileImprovement): Boolean {
+        // Don't check when there's no terrain and CanOnlyImproveResource is the only reason allowing the improvement
+        if (improvement.terrainsCanBeBuiltOn.isEmpty()) return true
+        // Resolve all terrainsCanBeBuiltOn entries to a TerrainType, using `occursOn` for TerrainFeatures
+        val allowedTypes = mutableSetOf<TerrainType>()
+        for (canBuildOn in improvement.terrainsCanBeBuiltOn) {
+            val type = TerrainType.entries.firstOrNull { it.name == canBuildOn }
+            if (type != null) allowedTypes += type
+            val terrain = tile.ruleset.terrains[canBuildOn] ?: continue
+            allowedTypes += terrain.type
+            for (occursOn in terrain.occursOn) {
+                val baseTerrain = tile.ruleset.terrains[occursOn] ?: continue
+                allowedTypes += baseTerrain.type
             }
         }
+        return tile.isLand && TerrainType.Land in allowedTypes ||
+            tile.isWater && TerrainType.Water in allowedTypes
+    }
 
-        if (improvementFieldHasChanged && tile.tileMap.hasGameInfo()) {
+    fun setImprovement(
+        improvementName: String,
+        /** For road assignment and taking over tiles - DO NOT pass when simulating improvement effects! */
+        civToActivateBroaderEffects: Civilization? = null,
+        unit: MapUnit? = null
+    ) {
+        val improvementObject = tile.ruleset.tileImprovements[improvementName]
+        setImprovement(improvementObject, civToActivateBroaderEffects, unit)
+    }
+
+
+    fun setImprovement(
+        improvement: TileImprovement?,
+        /** For road assignment and taking over tiles - DO NOT pass when simulating improvement effects! */
+        civToActivateBroaderEffects: Civilization? = null,
+        unit: MapUnit? = null
+    ) {
+        fun updateVisibility() {
+            if (!tile.tileMap.hasGameInfo()) return
             // Update the separately-kept "what a civ sees" - unless in map editor where there are no civs
             for (civ in tile.tileMap.gameInfo.civilizations) {
                 if (civ.isDefeated() || !civ.isMajorCiv()) continue
                 if (civ == civToActivateBroaderEffects || tile.isVisible(civ))
-                    civ.setLastSeenImprovement(tile.position, improvementName)
+                    civ.setLastSeenImprovement(tile.position, improvement?.name)
             }
         }
 
-        if (improvementObject != null && improvementObject.hasUnique(UniqueType.RemovesFeaturesIfBuilt)) {
+        fun updateCity() {
+            val city = tile.owningCity ?: return
+            if (civToActivateBroaderEffects == null) return
+            city.cityStats.update()
+            city.civ.cache.updateCivResources()
+            city.reassignPopulationDeferred()
+        }
+
+        if (improvement == null) {
+            val wasEncampment = tile.isBarbarianEncampment()
+            tile.improvementIsPillaged = false
+            tile.setImprovementBasic(null)
+            updateVisibility()
+            updateCity()
+            if (!wasEncampment) return
+            // Any barbarian encampment cleared outside MapUnit.clearEncampment should obsolete ClearBarbarianCamp quests
+            if (tile.tileMap.hasGameInfo()) // guard against removing encampments in map editor
+                for (cityState in tile.tileMap.gameInfo.getAliveCityStates())
+                    cityState.questManager.handleObsoleteGlobalQuests()
+            return
+        }
+
+        var improvementFieldHasChanged = false
+        when {
+            improvement.name.startsWith(Constants.remove) -> {
+                activateRemovalImprovement(improvement.name, civToActivateBroaderEffects)
+            }
+            improvement.name == RoadStatus.Road.name -> tile.setRoadStatus(RoadStatus.Road, civToActivateBroaderEffects)
+            improvement.name == RoadStatus.Railroad.name -> tile.setRoadStatus(RoadStatus.Railroad, civToActivateBroaderEffects)
+            improvement.name == Constants.repair -> tile.setRepaired()
+            else -> {
+                tile.improvementIsPillaged = false
+                tile.setImprovementBasic(improvement)
+                tile.improvementTurnBuilt = civToActivateBroaderEffects?.gameInfo?.turns ?: -1
+                improvementFieldHasChanged = true
+                if (improvement.hasUnique(UniqueType.Irremovable) || tile.isMarkedForCreatesOneImprovement(improvement.name)) {
+                    // I'm not sure what would happen if we try to replace an irremovable improvement
+                    // Let's not cancel our "Districts" in progress unless when finishing it (don't mess it up with accidental worker movements etc.)
+                    removeCreatesOneImprovementMarker()
+                }
+
+                // relevant when the improvement was created instantly - such as Great Improvement
+                tile.improvementQueue.removeIf { tile.ruleset.tileImprovements[it.improvement]?.isRoad() == true }
+            }
+        }
+
+        if (improvementFieldHasChanged) {
+            updateVisibility()
+        }
+
+        if (improvement.hasUnique(UniqueType.RemovesFeaturesIfBuilt)) {
             // Remove terrainFeatures that a Worker can remove
             // and that aren't explicitly allowed under the improvement
             val removableTerrainFeatures = tile.terrainFeatureObjects.filter { feature ->
                 val removingAction = "${Constants.remove}${feature.name}"
 
                 removingAction in tile.ruleset.tileImprovements // is removable
-                    && !improvementObject.isAllowedOnFeature(feature) // cannot coexist
+                    && !improvement.isAllowedOnFeature(feature) // cannot coexist
             }
 
             tile.setTerrainFeatures(tile.terrainFeatures.filterNot { feature -> removableTerrainFeatures.any { it.name == feature } })
         }
 
-        if (civToActivateBroaderEffects != null && improvementObject != null)
-            triggerImprovementUniques(improvementObject, civToActivateBroaderEffects, unit)
+        if (civToActivateBroaderEffects != null)
+            triggerImprovementUniques(improvement, civToActivateBroaderEffects, unit)
 
         // Territorial Warfare: auto-claim unowned water tiles when an improvement is built outside borders
         if (civToActivateBroaderEffects != null && tile.getOwner() == null && tile.isWater
-            && improvementName != null && improvementObject != null) {
+            && improvement != null) {
             val nearestCity = civToActivateBroaderEffects.cities.minByOrNull {
                 it.getCenterTile().aerialDistanceTo(tile)
             }
@@ -215,12 +283,7 @@ class TileImprovementFunctions(val tile: Tile) {
             }
         }
 
-        val city = tile.owningCity
-        if (civToActivateBroaderEffects != null && city != null) {
-            city.cityStats.update()
-            city.civ.cache.updateCivResources()
-            city.reassignPopulationDeferred()
-        }
+        updateCity()
     }
 
     private fun triggerImprovementUniques(
@@ -229,13 +292,6 @@ class TileImprovementFunctions(val tile: Tile) {
         unit: MapUnit? = null
     ) {
         val gameContext = GameContext(civ, unit = unit, tile = tile)
-        
-        for (unique in improvement.getMatchingUniques(UniqueType.CostsResources, gameContext)) {
-            val resource = tile.ruleset.tileResources[unique.params[1]] ?: continue
-            var amount = unique.params[0].toInt()
-            if (unique.isModifiedByGameSpeed()) amount = (amount * civ.gameInfo.speed.modifier).toInt()
-            civ.gainStockpiledResource(resource, -amount)
-        }
 
         for (unique in improvement.uniqueObjects) {
             if (unique.hasTriggerConditional() || !unique.conditionalsApply(gameContext)) continue
@@ -259,13 +315,11 @@ class TileImprovementFunctions(val tile: Tile) {
         civToActivateBroaderEffects: Civilization?
     ) {
         val removedFeatureName = improvementName.removePrefix(Constants.remove)
-        val currentTileImprovement = tile.getTileImprovement()
+        val currentTileImprovement = tile.tileImprovement
         // We removed a terrain (e.g. Forest) and the improvement (e.g. Lumber mill) requires it!
-        if (currentTileImprovement != null
-            && tile.terrainFeatures.any {
+        if (currentTileImprovement != null && tile.terrainFeatures.any {
                 currentTileImprovement.terrainsCanBeBuiltOn.contains(it) && it == removedFeatureName
-            }
-            && !currentTileImprovement.terrainsCanBeBuiltOn.contains(tile.baseTerrain)
+            } && !currentTileImprovement.terrainsCanBeBuiltOn.contains(tile.baseTerrain)
         ) tile.removeImprovement()
 
         if (RoadStatus.entries.any { improvementName == it.removeAction }) {
@@ -274,9 +328,9 @@ class TileImprovementFunctions(val tile: Tile) {
         else if (tile.improvement == removedFeatureName) tile.removeImprovement()
         else {
             val removedFeatureObject = tile.ruleset.terrains[removedFeatureName]
-            if (removedFeatureObject != null
-                && civToActivateBroaderEffects != null
-                && removedFeatureObject.hasUnique(UniqueType.ProductionBonusWhenRemoved)
+            if (removedFeatureObject != null &&
+                civToActivateBroaderEffects != null &&
+                removedFeatureObject.hasUnique(UniqueType.ProductionBonusWhenRemoved)
             )
                 tryProvideProductionToClosestCity(removedFeatureName, civToActivateBroaderEffects)
 
@@ -313,15 +367,19 @@ class TileImprovementFunctions(val tile: Tile) {
 
     /** Marks tile as target tile for a building with a [UniqueType.CreatesOneImprovement] unique */
     fun markForCreatesOneImprovement(improvement: String) {
-        tile.stopWorkingOnImprovement()
+        tile.improvementQueue.clear()
         tile.queueImprovement(improvement, -1)
     }
 
-    /** Un-Marks a tile as target tile for a building with a [UniqueType.CreatesOneImprovement] unique,
-     *  and ensures that matching queued buildings are removed. */
-    fun removeCreatesOneImprovementMarker() {
+    /** Un-Marks a tile as target tile for a building with a [UniqueType.CreatesOneImprovement] unique.
+     *  @param removeConstruction whether to also remove the matching queued building. */
+    fun removeCreatesOneImprovementMarker(removeConstruction: Boolean = true) {
         if (!tile.isMarkedForCreatesOneImprovement()) return
-        tile.owningCity?.cityConstructions?.removeCreateOneImprovementConstruction(tile.improvementInProgress!!)
-        tile.stopWorkingOnImprovement()
+        val improvementInProgress = checkNotNull(tile.improvementInProgress) {
+            "Cannot remove ${UniqueType.CreatesOneImprovement.name} marker from ${tile.position} without an improvement in progress"
+        }
+        tile.improvementQueue.clear()
+        if (removeConstruction)
+            tile.owningCity?.cityConstructions?.removeCreateOneImprovementConstruction(improvementInProgress)
     }
 }

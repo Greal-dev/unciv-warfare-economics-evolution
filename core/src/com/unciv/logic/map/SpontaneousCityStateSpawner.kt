@@ -51,7 +51,8 @@ object SpontaneousCityStateSpawner {
         cs.cityStateFunctions.initCityState(
             gameInfo.ruleset,
             gameInfo.gameParameters.startingEra,
-            emptySequence()
+            emptySequence(),
+            com.unciv.models.ruleset.unique.GameContext(gameInfo = gameInfo).stateBasedRandom("SpontaneousCityStateSpawner.initCityState")
         )
 
         // Plant the capital using the engine's city-founding machinery

@@ -9,6 +9,8 @@ import com.unciv.logic.GameInfo
 import com.unciv.logic.GameStarter
 import com.unciv.logic.IdChecker
 import com.unciv.logic.UncivShowableException
+import com.unciv.logic.civilization.AlertType
+import com.unciv.logic.civilization.Civilization
 import com.unciv.logic.civilization.PlayerType
 import com.unciv.logic.files.MapSaver
 import com.unciv.logic.map.MapGeneratedMainType
@@ -16,6 +18,7 @@ import com.unciv.logic.multiplayer.Multiplayer
 import com.unciv.logic.multiplayer.storage.FileStorageRateLimitReached
 import com.unciv.models.metadata.BaseRuleset
 import com.unciv.models.metadata.GameSetupInfo
+import com.unciv.models.metadata.Player
 import com.unciv.models.ruleset.Ruleset
 import com.unciv.models.ruleset.RulesetCache
 import com.unciv.models.translations.tr
@@ -56,9 +59,15 @@ class NewGameScreen(
     private val newGameOptionsTable: GameOptionsTable
     internal val playerPickerTable: PlayerPickerTable
     private val mapOptionsTable: MapOptionsTable
+    private var mapOptionsTableInitialized = false
 
     init {
         val isPortrait = isNarrowerThan4to3()
+
+        // The mods loaded here may come from the last-started game (see GameSetupInfo.fromSettings) -
+        // if that combination is now broken (e.g. a mod was updated/removed), silently fall back to
+        // defaults instead of opening straight into an unusable, error-flagged mod selection.
+        if (defaultGameSetupInfo == null) resetIfInitialModsAreBroken()
 
         tryUpdateRuleset(updateUI = false)  // must come before playerPickerTable so mod nations from fromSettings
 
@@ -66,7 +75,7 @@ class NewGameScreen(
         gameSetupInfo.gameParameters.victoryTypes.removeAll { it !in ruleset.victories.keys }
 
         if (gameSetupInfo.gameParameters.victoryTypes.isEmpty())
-            gameSetupInfo.gameParameters.victoryTypes.addAll(ruleset.victories.keys)
+            gameSetupInfo.gameParameters.victoryTypes.addAll(ruleset.selectableVictories().map { it.name })
 
         rightSideButton.enable()  // now because PlayerPickerTable init might disable it again
         playerPickerTable = PlayerPickerTable(
@@ -79,6 +88,7 @@ class NewGameScreen(
             updatePlayerPickerRandomLabel = { playerPickerTable.updateRandomNumberLabel() }
         )
         mapOptionsTable = MapOptionsTable(this)
+        mapOptionsTableInitialized = true
         closeButton.onActivation {
             mapOptionsTable.cancelBackgroundJobs()
             game.popScreen()
@@ -104,7 +114,7 @@ class NewGameScreen(
                     val gameSetupInfo = GameSetupInfo().apply {
                         gameParameters.espionageEnabled = true
                     }
-                    game.replaceCurrentScreen(NewGameScreen(gameSetupInfo))
+                    game.replaceCurrentScreen{ NewGameScreen(gameSetupInfo) }
                 }.open(true)
             }
             horizontalGroup.addActor(resetToDefaultsButton)
@@ -140,7 +150,6 @@ class NewGameScreen(
                 Concurrency.runOnGLThread {
                     AcceptModErrorsPopup(
                         this@NewGameScreen, modCheckResult,
-                        restoreDefault = { newGameOptionsTable.resetRuleset() },
                         action = {
                             gameSetupInfo.gameParameters.acceptedModCheckErrors = modCheckResult
                             startGameAvoidANRs()
@@ -162,7 +171,7 @@ class NewGameScreen(
                     else "Couldn't connect to Dropbox!"
 
             for (player in gameSetupInfo.gameParameters.players.filter { it.playerType == PlayerType.Human }) {
-                if (!(IdChecker.checkAndReturnPlayerUuid(player.playerId)?.isUUID() ?: false)) {
+                if (!(IdChecker.checkAndReturnPlayerUuid(player.playerId)?.playerID?.isUUID() ?: false)) {
                     return "Invalid player ID!"
                 }
             }
@@ -224,6 +233,11 @@ class NewGameScreen(
     /** Subtables may need an upper limit to their width - they can ask this function. */
     // In sync with isPortrait in init, here so UI details need not know about 3-column vs 1-column layout
     internal fun getColumnWidth() = floor(stage.width / (if (isNarrowerThan4to3()) 1 else 3))
+
+    internal fun refreshExampleMap() {
+        if (mapOptionsTableInitialized)
+            mapOptionsTable.refreshExampleMap()
+    }
 
     private fun initLandscape() {
         scrollPane.setScrollingDisabled(true,true)
@@ -298,10 +312,38 @@ class NewGameScreen(
                 GameStarter.startNewGame(gameSetupInfo)
             else {
                 val gameInfo = game.files.loadGameFromFile(selectedScenario.file)
-                // Instead of removing spectator we AI-ify it, so we don't get problems in e.g. diplomacy
-                gameInfo.civilizations.firstOrNull { it.civName == Constants.spectator }?.playerType = PlayerType.AI
-                for (playerInfo in gameSetupInfo.gameParameters.players){
-                    gameInfo.civilizations.firstOrNull { it.civName == playerInfo.chosenCiv }?.playerType = playerInfo.playerType
+                // Remove the Spectator - it was recommended by the wiki as Scenario builder
+                gameInfo.civilizations.removeIf { it.civID == Constants.spectator }
+                for (civ in gameInfo.civilizations) {
+                    civ.playerType = PlayerType.AI
+                    civ.diplomacy.remove(Constants.spectator)
+                    civ.popupAlerts.removeIf { it.type == AlertType.FirstContact && it.value == Constants.spectator }
+                }
+                // Ergo the Spectator can't be chosen from NewGameScreen - make sure
+                gameSetupInfo.gameParameters.players.removeIf { it.chosenCiv == Constants.spectator }
+                // Now assign player types to explicit player Nation choices that exist in the game,
+                // remembering which are already "used".
+                // (at the moment NewGameScreen forbids such choices for scenarios, but let's support it here in case someone goes and does) 
+                val randomPool = gameInfo.civilizations.filter { it.isMajorCiv() }.map { it.civID }.toMutableSet()
+                fun Civilization.assign(playerInfo: Player) {
+                    playerType = playerInfo.playerType
+                    randomPool.remove(civID)
+                }
+                for (playerInfo in gameSetupInfo.gameParameters.players) {
+                    if (playerInfo.chosenCiv == Constants.random) continue
+                    gameInfo.getCivilizationOrNull(playerInfo.chosenCiv)?.assign(playerInfo)
+                }
+                // Now assign player types for "Random" entries
+                for (playerInfo in gameSetupInfo.gameParameters.players) {
+                    if (playerInfo.chosenCiv != Constants.random) continue
+                    val civID = randomPool.randomOrNull() ?: continue
+                    gameInfo.getCivilizationOrNull(civID)?.assign(playerInfo)
+                }
+                // If the Spectator was active when saved, skip it
+                if (gameInfo.currentPlayer == Constants.spectator) {
+                    gameInfo.currentPlayer = ""
+                    gameInfo.nextTurn() // TODO Risky - triggers?
+                    gameInfo.turns--
                 }
                 gameInfo
             }
@@ -350,6 +392,8 @@ class NewGameScreen(
         }
 
         val worldScreen = game.loadGame(newGame)
+        
+        worldScreen.autoSave()
 
         if (newGame.gameParameters.isOnlineMultiplayer) {
             launchOnGLThread {
@@ -359,6 +403,18 @@ class NewGameScreen(
                     ToastPopup("Game ID copied to clipboard!".tr(), worldScreen, 2500)
             }
         }
+    }
+
+    /** If the mod/baseRuleset combination inherited from [gameSetupInfo] is broken (Error severity),
+     *  reset it to the default base ruleset with no mods, so we never build the UI around an
+     *  unusable selection. */
+    private fun resetIfInitialModsAreBroken() {
+        val gameParameters = gameSetupInfo.gameParameters
+        if (gameParameters.mods.isEmpty()) return
+        val (_, errors) = RulesetCache.checkCombinedModLinks(gameParameters.mods, gameParameters.baseRuleset)
+        if (!errors.isError()) return
+        gameParameters.mods.clear()
+        gameParameters.baseRuleset = BaseRuleset.Civ_V_GnK.fullName
     }
 
     /** Updates our local [ruleset] from [gameSetupInfo], guarding against exceptions.
@@ -390,6 +446,8 @@ class NewGameScreen(
 
         ruleset.clear()
         ruleset.add(newRuleset)
+        // Activate restored mod translations before constructing or updating the options tables.
+        game.translations.translationActiveMods = gameSetupInfo.gameParameters.getModsAndBaseRuleset()
         ImageGetter.setNewRuleset(ruleset)
         game.musicController.setModList(gameSetupInfo.gameParameters.getModsAndBaseRuleset())
 

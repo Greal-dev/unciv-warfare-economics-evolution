@@ -1,5 +1,6 @@
 package com.unciv.logic.map.mapgenerator.resourceplacement
 
+import com.unciv.logic.map.HexMath.getDistance
 import com.unciv.logic.map.mapgenerator.MapResourceSetting
 import com.unciv.logic.map.TileMap
 import com.unciv.logic.map.mapgenerator.mapregions.*
@@ -25,6 +26,7 @@ object LuxuryResourcePlacementLogic {
      *  Some luxuries are earmarked for city states. The rest are randomly distributed or
      *  don't occur at all in the map */
     fun assignLuxuries(regions: ArrayList<Region>, tileData: TileDataMap, ruleset: Ruleset): Pair<List<String>, List<String>> {
+        val globalRng = GameContext(gameInfo = regions[0].tileMap.gameInfo).stateBasedRandom("LuxuryResourcePlacementLogic.assignLuxuries")
 
         // If there are any weightings defined in json, assume they are complete. If there are none, use flat weightings instead
         val fallbackWeightings = ruleset.tileResources.values.none {
@@ -47,6 +49,7 @@ object LuxuryResourcePlacementLogic {
             .forEach { amountRegionsWithLuxury[it.name] = 0 }
 
         for (region in regions.sortedBy { getRegionPriority(ruleset.terrains[it.type]) } ) {
+            val regionRng = GameContext(gameInfo = region.tileMap.gameInfo, region = region).stateBasedRandom("LuxuryResourcePlacementLogic.assignLuxuries")
             val candidateLuxuries = getCandidateLuxuries(
                 assignableLuxuries,
                 amountRegionsWithLuxury,
@@ -60,20 +63,20 @@ object LuxuryResourcePlacementLogic {
 
             // Pick a luxury at random. Weight is reduced if the luxury has been picked before
             val regionConditional = GameContext(region = region)
-            region.luxury = candidateLuxuries.randomWeighted {
+            region.luxury = candidateLuxuries.randomWeighted(regionRng) {
                 val weightingUnique = it.getMatchingUniques(UniqueType.ResourceWeighting, regionConditional).firstOrNull()
                 val relativeWeight = if (weightingUnique == null) 1f else weightingUnique.params[0].toFloat()
                 relativeWeight / (1f + amountRegionsWithLuxury[it.name]!!)
             }.name
             amountRegionsWithLuxury[region.luxury!!] = amountRegionsWithLuxury[region.luxury]!! + 1
         }
-
-
+        
         val cityStateLuxuries = assignCityStateLuxuries(
             4, // was probably intended to be "if (tileData.size > 5000) 4 else 3",
             assignableLuxuries,
             amountRegionsWithLuxury,
-            fallbackWeightings
+            fallbackWeightings,
+            globalRng
         )
 
         val randomLuxuries = getLuxuriesForRandomPlacement(assignableLuxuries, amountRegionsWithLuxury, tileData, ruleset)
@@ -94,8 +97,7 @@ object LuxuryResourcePlacementLogic {
 
         val disabledPercent =
             100 - min(tileData.size.toFloat().pow(0.2f) * 16, 100f).toInt() // Approximately
-        val targetDisabledLuxuries = (ruleset.tileResources.values
-            .count { it.resourceType == ResourceType.Luxury } * disabledPercent) / 100
+        val targetDisabledLuxuries = (remainingLuxuries.size * disabledPercent) / 100
         return remainingLuxuries.drop(targetDisabledLuxuries)
     }
 
@@ -115,9 +117,10 @@ object LuxuryResourcePlacementLogic {
                 // Check that it has a weight for this region type
                 (fallbackWeightings ||
                     it.hasUnique(UniqueType.ResourceWeighting, regionConditional)) &&
-                // Check that there is enough coast if it is a water based resource
-                ((region.terrainCounts["Coastal"] ?: 0) >= 12 ||
-                    it.terrainsCanBeFoundOn.any { terrain -> ruleset.terrains[terrain]!!.type != TerrainType.Water })
+                // Check that there is enough coast and that there is coast close enough to starting location if it is a water based resource
+                (((region.terrainCounts["Coastal"] ?: 0) >= 12 && 
+                    region.tileMap[region.startPosition!!].isAdjacentToCoast()) ||
+                    !isWaterOnlyResource(it, ruleset))
         }
 
         // If we couldn't find any options, pick from all luxuries. First try to not pick water luxuries on land regions
@@ -144,7 +147,8 @@ object LuxuryResourcePlacementLogic {
         targetCityStateLuxuries: Int,
         assignableLuxuries: List<TileResource>,
         amountRegionsWithLuxury: HashMap<String, Int>,
-        fallbackWeightings: Boolean
+        fallbackWeightings: Boolean,
+        rng: Random,
     ): ArrayList<String> {
         val cityStateLuxuries = ArrayList<String>()
         repeat(targetCityStateLuxuries) {
@@ -154,7 +158,7 @@ object LuxuryResourcePlacementLogic {
             }
             if (candidateLuxuries.isEmpty()) return@repeat
 
-            val luxury = candidateLuxuries.randomWeighted {
+            val luxury = candidateLuxuries.randomWeighted(rng) {
                 val weightingUnique =
                     it.getMatchingUniques(UniqueType.LuxuryWeightingForCityStates).firstOrNull()
                 if (weightingUnique == null)
@@ -267,10 +271,11 @@ object LuxuryResourcePlacementLogic {
         ruleset: Ruleset
     ) {
         if (randomLuxuries.isEmpty()) return
+        val rng = GameContext(gameInfo = tileMap.gameInfo).stateBasedRandom("LuxuryResourcePlacementLogic.addRandomLuxuries")
         var targetRandomLuxuries = tileData.size.toFloat().pow(0.45f).toInt() // Approximately
         targetRandomLuxuries *= tileMap.mapParameters.getMapResources().randomLuxuriesPercent
         targetRandomLuxuries /= 100
-        targetRandomLuxuries += Random.nextInt(regions.size) // Add random number based on number of civs
+        targetRandomLuxuries += rng.nextInt(regions.size) // Add random number based on number of civs
         val minimumRandomLuxuries = tileData.size.toFloat().pow(0.2f).toInt() // Approximately
         val worldTiles = tileMap.values.asSequence().shuffled()
         for ((index, luxury) in randomLuxuries.shuffled().withIndex()) {
@@ -301,11 +306,15 @@ object LuxuryResourcePlacementLogic {
         tileMap: TileMap,
         ruleset: Ruleset
     ) {
+        val rng = GameContext(gameInfo = tileMap.gameInfo).stateBasedRandom("LuxuryResourcePlacementLogic.addRegionalLuxuries")
         val idealCivsForMapSize = max(2, tileData.size / 500)
+        val civCount = regions.size
         var regionTargetNumber =
             (tileData.size / 600) - (0.3f * abs(regions.size - idealCivsForMapSize)).toInt()
         regionTargetNumber += tileMap.mapParameters.getMapResources().regionalLuxuriesDelta
         regionTargetNumber = max(1, regionTargetNumber)
+        // We place atleast 2 regionals close to the civ, and there's no reason to have more copies than one for each other civ
+        regionTargetNumber = min(civCount-3,regionTargetNumber)
         for (region in regions) {
             val resource = ruleset.tileResources[region.luxury] ?: continue
             fun Tile.isShoreOfContinent(continent: Int) =
@@ -315,11 +324,17 @@ object LuxuryResourcePlacementLogic {
                 tileMap.getTilesInRectangle(region.rect)
                     .filter { it.isShoreOfContinent(region.continentID) }
             else region.tiles.asSequence()
+            val sortedCandidates = candidates
+                .map { it to getDistance(it.position, region.startPosition!!) + rng.nextFloat() * 20f }
+                .toList()
+                .sortedBy { it.second }
+                .map { it.first }
+                .asSequence()
             MapRegionResources.tryAddingResourceToTiles(
                 tileData,
                 resource,
                 regionTargetNumber,
-                candidates.shuffled(),
+                sortedCandidates,
                 0.4f,
                 true,
                 4,
@@ -336,6 +351,7 @@ object LuxuryResourcePlacementLogic {
         cityStateLuxuries: List<String>,
         tileData: TileDataMap
     ) {
+        val rng = GameContext(gameInfo = tileMap.gameInfo).stateBasedRandom("LuxuryResourcePlacementLogic.placeLuxuriesAtMinorCivStartLocations")
         for (startLocation in tileMap.startingLocationsByNation
             .filterKeys { ruleset.nations[it]!!.isCityState }.map { it.value.first() }) {
             val region = regions.firstOrNull { startLocation in it.tiles }
@@ -344,7 +360,7 @@ object LuxuryResourcePlacementLogic {
             // 25% probability of going the other way around
             val globalLuxuries =
                 if (region?.luxury != null) randomLuxuries + listOf(region.luxury) else randomLuxuries
-            val candidateLuxuries = if (Random.nextInt(100) >= 25)
+            val candidateLuxuries = if (rng.nextInt(100) >= 25)
                 cityStateLuxuries.shuffled() + globalLuxuries.shuffled()
             else
                 globalLuxuries.shuffled() + cityStateLuxuries.shuffled()

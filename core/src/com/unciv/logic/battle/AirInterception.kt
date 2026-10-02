@@ -8,7 +8,6 @@ import com.unciv.logic.map.mapunit.MapUnit
 import com.unciv.logic.map.tile.Tile
 import com.unciv.models.ruleset.unique.GameContext
 import com.unciv.models.ruleset.unique.UniqueType
-import kotlin.random.Random
 
 object AirInterception {
 
@@ -30,7 +29,7 @@ object AirInterception {
             // if it was a melee attack and we won, then the unit ALREADY got movement points deducted,
             // for the movement to the enemy's tile!
             // and if it's an air unit, it only has 1 movement anyway, so...
-            if (!attacker.unit.baseUnit.movesLikeAirUnits)
+            if (!attacker.unit.baseUnit.isAirUnit())
                 attacker.unit.useMovementPoints(1f)
         } else attacker.unit.currentMovement = 0f
         val attackerName = attacker.getName()
@@ -149,8 +148,11 @@ object AirInterception {
         interceptingCiv: Civilization,
         defender: ICombatant?
     ): Battle.DamageDealt {
-        if (attacker.unit.hasUnique(UniqueType.CannotBeIntercepted, GameContext(attacker.getCivInfo(), ourCombatant = attacker, theirCombatant = defender, attackedTile = attackedTile)))
+        val attackContext = GameContext(attacker, defender, attackedTile, CombatAction.Intercept)
+        if (attacker.unit.hasUnique(UniqueType.CannotBeIntercepted, attackContext))
             return Battle.DamageDealt.None
+        val rng = attackContext.stateBasedRandom("AirInterception.tryInterceptAirAttack")
+
 
         // Pick highest chance interceptor
         val interceptor = interceptingCiv.units.getCivUnits()
@@ -168,7 +170,7 @@ object AirInterception {
 
         interceptor.attacksThisTurn++  // even if you miss, you took the shot
         // Does Intercept happen? If not, exit
-        if (Random.Default.nextFloat() > interceptor.interceptChance() / 100f)
+        if (rng.nextFloat() > interceptor.interceptChance() / 100f)
             return Battle.DamageDealt.None
 
         var damage = BattleDamage.calculateDamageToDefender(

@@ -290,56 +290,6 @@ enum class RejectionReasonType(val shouldShow: Boolean, val errorMessage: String
     }
 }
 
-open class PerpetualConstruction(override var name: String, val description: String) :
-    IConstruction {
-
-    override fun shouldBeDisplayed(cityConstructions: CityConstructions) = isBuildable(cityConstructions)
-    @Readonly open fun getProductionTooltip(city: City, withIcon: Boolean = false) : String = ""
-    override fun getStockpiledResourceRequirements(state: GameContext) = Counter.ZERO
-
-    companion object {
-        val science = PerpetualStatConversion(Stat.Science)
-        val gold = PerpetualStatConversion(Stat.Gold)
-        val culture = PerpetualStatConversion(Stat.Culture)
-        val faith = PerpetualStatConversion(Stat.Faith)
-        val idle = object : PerpetualConstruction("Nothing", "The city will not produce anything.") {
-            override fun isBuildable(cityConstructions: CityConstructions): Boolean = true
-        }
-
-        val perpetualConstructionsMap: Map<String, PerpetualConstruction>
-                = mapOf(science.name to science, gold.name to gold, culture.name to culture, faith.name to faith, idle.name to idle)
-
-        /** @return whether [name] represents a PerpetualConstruction - note "" is translated to Nothing in the queue so `isNamePerpetual("")==true` */
-        fun isNamePerpetual(name: String) = name.isEmpty() || name in perpetualConstructionsMap
-                || ProductionTransferConstruction.isTransferConstruction(name)
-    }
-
-    override fun isBuildable(cityConstructions: CityConstructions): Boolean =
-            throw Exception("Impossible!")
-
-    override fun getResourceRequirementsPerTurn(state: GameContext?) = Counter.ZERO
-
-    override fun requiredResources(state: GameContext): Set<String> = emptySet()
-}
-
-open class PerpetualStatConversion(val stat: Stat) :
-    PerpetualConstruction(stat.name, "Convert production to [${stat.name}] at a rate of [rate] to 1") {
-
-    override fun getProductionTooltip(city: City, withIcon: Boolean) : String
-            = "\r\n${(city.cityStats.currentCityStats.production / getConversionRate(city)).roundToInt()}${if (withIcon) stat.character else ""}/${Fonts.turn}"
-    @Readonly fun getConversionRate(city: City) : Int = (1/city.cityStats.getStatConversionRate(stat)).roundToInt()
-
-    override fun isBuildable(cityConstructions: CityConstructions): Boolean {
-        val city = cityConstructions.city
-        if (stat == Stat.Faith && !city.civ.gameInfo.isReligionEnabled())
-            return false
-
-        val stateForConditionals = city.state
-        return city.civ.getMatchingUniques(UniqueType.EnablesCivWideStatProduction, stateForConditionals)
-            .any { it.params[0] == stat.name }
-    }
-}
-
 class ProductionTransferConstruction(val targetCityId: String, val targetCityName: String) :
     PerpetualConstruction("$PREFIX$targetCityId", "Transfer production to another city. Efficiency depends on current era.") {
 

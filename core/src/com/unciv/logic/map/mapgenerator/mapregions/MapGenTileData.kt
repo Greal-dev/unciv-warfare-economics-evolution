@@ -42,7 +42,7 @@ class MapGenTileData(val tile: Tile, val region: Region?, ruleset: Ruleset) {
     /** Populates all private-set fields */
     private fun evaluate(ruleset: Ruleset) {
         // Check if we are two tiles from coast (a bad starting site)
-        if (!tile.isCoastalTile() && tile.neighbors.any { it.isCoastalTile() })
+        if (!tile.isAdjacentToCoast() && tile.neighbors.any { it.isAdjacentToCoast() })
             isTwoFromCoast = true
 
         // Check first available out of unbuildable features, then other features, then base terrain
@@ -51,10 +51,10 @@ class MapGenTileData(val tile: Tile, val region: Region?, ruleset: Ruleset) {
             ?: tile.terrainFeatureObjects.first()
 
         // Add all applicable qualities
-        for (unique in terrainToCheck.getMatchingUniques(
+        terrainToCheck.forEachMatchingUnique(
             UniqueType.HasQuality,
             GameContext(region = region)
-        )) {
+        ) { unique ->
             when (unique.params[0]) {
                 "Food" -> isFood = true
                 "Desirable" -> isGood = true

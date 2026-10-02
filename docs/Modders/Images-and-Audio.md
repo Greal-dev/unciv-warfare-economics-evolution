@@ -38,16 +38,17 @@ If you use external tools and multiple atlases, you will need to maintain this f
 A large number of atlases may be the result of having very large icons.
 We find that 100x100 pixels is good enough for most icons.
 
-#### Circle icons
+#### Rendering performance
 
 To allow for faster rendering for icons, which has a major performance effect, you can copy the ["OtherIcons/circle.png"](https://github.com/yairm210/Unciv/blob/master/android/Images.Icons/OtherIcons/Circle.png) to:
 
-- "ImprovementIcons/Circle.png" for improvements
+- "ImprovementIcons/Circle.png" for improvements - you can also copy "ImprovementIcons/Pillaged.png" for it to be packed with your icons
 - "ResourceIcons/Circle.png" for resources
 - "TechIcons/Circle.png" for technologies
 - "ConstructionIcons/Circle.png" for buildings and units
 - "StatIcons/Circle.png" for stats
 
+You should only do so if the mod icons will be the *majority* of the icons for each category, NOT if you're adding on a few more.
 
 ### Texture packer settings
 
@@ -140,10 +141,10 @@ Note textures provided for such codepoints *do* respect aspect ratio, they do *n
 |   ∞    |  U+221E   | infinity                           | EmojiIcons/Infinity         |    *     |
 |   ⚙    |  U+2699   | gear                               | EmojiIcons/Production       |          |
 |   ⍾    |  U+237E   | bell symbol                        | EmojiIcons/Science          |          |
-|   ￪    |  U+FFEA   | halfwidth upwards arrow            | EmojiIcons/SortedAscending  |    *     |
+|   ↑    |  U+2191   | upwards arrow                      | EmojiIcons/SortedAscending  |    *     |
 |   ◉    |  U+25C9   | fisheye                            | EmojiIcons/SortedByStatus   |    *     |
 |   ⌚    |  U+231A   | watch                              | EmojiIcons/SortedByTime     |    *     |
-|   ￬    |  U+FFEC   | halfwidth upwards arrow            | EmojiIcons/SortedDescending |    *     |
+|   ↓    |  U+2193   | upwards arrow                      | EmojiIcons/SortedDescending |    *     |
 |   ✯    |  U+272F   | pinwheel star                      | EmojiIcons/Star             |    *     |
 |   ⏳    |  U+23F3   | hourglass                          | EmojiIcons/Turn             |          |
 |   ⅰ    |  U+2170   | small roman numeral one            | MayaCalendar/0              |          |

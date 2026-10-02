@@ -22,6 +22,13 @@ class TemporaryUnique() : IsPartOfGameInfoSerialization {
     val uniqueObject: Unique by lazy { Unique(unique, sourceObjectType, sourceObjectName) }
 
     var turnsLeft: Int = 0
+
+    fun clone() = TemporaryUnique().also {
+        it.unique = unique
+        it.sourceObjectType = sourceObjectType
+        it.sourceObjectName = sourceObjectName
+        it.turnsLeft = turnsLeft
+    }
 }
 
 
@@ -39,4 +46,13 @@ fun ArrayList<TemporaryUnique>.getMatchingTagUniques(uniqueType: UniqueType, gam
         .map { it.uniqueObject }
         .filter { it.type == uniqueType && it.conditionalsApply(gameContext) }
         .flatMap { it.getMultiplied(gameContext) }
+}
+
+@Readonly
+fun ArrayList<TemporaryUnique>.forEachMatchingUnique(uniqueType: UniqueType, gameContext: GameContext, op: (unique: Unique)->Unit) {
+    for (i in 0..<size) {
+        val unique = get(i).uniqueObject
+        if (unique.type == uniqueType && unique.conditionalsApply(gameContext))
+            unique.forEachMultiplied(gameContext, op)
+    }
 }

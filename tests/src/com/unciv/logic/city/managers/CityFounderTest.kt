@@ -3,14 +3,14 @@ package com.unciv.logic.city.managers
 import com.unciv.Constants
 import com.unciv.logic.civilization.Civilization
 import com.unciv.logic.map.HexCoord
-import com.unciv.testing.GdxTestRunner
+import com.unciv.testing.BaseTestRunner
 import com.unciv.testing.TestGame
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 
-@RunWith(GdxTestRunner::class)
+@RunWith(BaseTestRunner::class)
 class CityFounderTest {
 
     private lateinit var civ: Civilization
@@ -119,13 +119,13 @@ class CityFounderTest {
     fun `should remove improvements upon city founding`() {
         // given
         val tile = testGame.getTile(HexCoord.Zero)
-        tile.improvement = "Farm"
+        tile.setImprovementBasic("Farm")
 
         // when
         cityFounder.foundCity(civ, HexCoord.Zero)
 
         // then
-        assertFalse(tile.improvement.equals("Farm"))
+        assertFalse(tile.improvement == "Farm")
     }
 
     @Test
@@ -136,14 +136,15 @@ class CityFounderTest {
 
         // when
         val city = cityFounder.foundCity(civ, HexCoord.Zero)
-        city.workedTiles = hashSetOf(HexCoord(1,0))
-        city.lockedTiles = hashSetOf(HexCoord(1,0))
+        city.clearWorkedTiles()
+        val tile10 = city.tileMap[HexCoord(1,0)]
+        city.workTile(tile10)
+        city.lockTile(tile10)
         city.cityStats.update()
 
         // then
-        assertFalse(city.workedTiles.contains(city.getCenterTile().position)) // no pop required
-        // TW: tile production now goes to tileProductionBonus (% bonus), not statsFromTiles
-        assertEquals(2.0f, city.cityStats.tileProductionBonus)
+        assertFalse(city.isWorked(city.getCenterTile())) // no pop required
+        assertEquals(2.0f, city.cityStats.statsFromTiles.production)
     }
 
     @Test

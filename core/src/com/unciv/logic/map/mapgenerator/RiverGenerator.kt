@@ -1,12 +1,10 @@
 package com.unciv.logic.map.mapgenerator
 
-import com.unciv.Constants
 import com.unciv.logic.map.HexCoord
 import com.unciv.logic.map.TileMap
-import com.unciv.logic.map.mapgenerator.RiverGenerator.Companion.continueRiverOn
-import com.unciv.logic.map.mapgenerator.RiverGenerator.RiverCoordinate
 import com.unciv.logic.map.tile.Tile
 import com.unciv.models.ruleset.Ruleset
+import com.unciv.models.ruleset.unique.GameContext
 import com.unciv.models.ruleset.unique.UniqueType
 import com.unciv.utils.debug
 import kotlin.math.roundToInt
@@ -27,11 +25,12 @@ class RiverGenerator(
     private val maxRiverLength = ruleset.modOptions.constants.maxRiverLength
 
     fun spawnRivers(resultingTiles: MutableSet<Tile>? = null) {
+        if (maxRiverLength <= 0) return
         if (tileMap.values.none { it.isWater }) return
         val numberOfRivers = (tileMap.values.count { it.isLand } * riverCountMultiplier).roundToInt()
 
         var optionalTiles = tileMap.values.asSequence()
-            .filter { it.baseTerrain == Constants.mountain && it.isFarEnoughFromWater() }
+            .filter { it.getBaseTerrain().isMountain && it.isFarEnoughFromWater() }
             .toMutableList()
         if (optionalTiles.size < numberOfRivers)
             optionalTiles.addAll(tileMap.values.filter { it.isHill() && it.isFarEnoughFromWater() })
@@ -280,10 +279,11 @@ class RiverGenerator(
             // Greatly encourage connecting to sea unless the tile already has a river to sea, in which case slightly discourage another one
             val edgeToSeaPriority = if (viableNeighbors.none { it.isConnectedByRiver && it.edgeLeadsToSea }) 9 else -1
 
+            val rng = GameContext(tile = tile).stateBasedRandom("RiverGenerator.continueRiverOn")
             val choice = viableNeighbors
                 .groupBy { it.getPriority(edgeToSeaPriority) } // Assign and group by priorities
                 .maxBy { it.key }.value // Get the List with best priority - can't be empty
-                .random()
+                .random(rng)
 
             return tile.setConnectedByRiver(choice.otherTile, newValue = true, convertTerrains = true)
         }

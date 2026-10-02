@@ -52,8 +52,18 @@ allprojects {
     apply(plugin = "io.github.yairm210.purity-plugin")
     configure<yairm210.purity.PurityConfiguration> {
         wellKnownPureFunctions = setOf(
+            "io.ktor.http.Url", //constructor (upstream)
         )
         wellKnownReadonlyFunctions = setOf(
+            // TW: upstream's list, plus what its newer purity plugin (1.7.1) knows natively and our 1.3.3 does not
+            "com.badlogic.gdx.utils.IntArray.get",
+            "io.ktor.http.Url.segments",
+            "io.ktor.http.Url.parameters",
+            "io.ktor.http.Parameters.get",
+            "java.util.BitSet.clone",
+            "java.util.BitSet.nextSetBit",
+            "kotlin.synchronized",
+            "kotlin.collections.plusAssign", // targets of upstream's @Mutated parameters
             "com.badlogic.gdx.math.Vector2.len",
             "com.badlogic.gdx.math.Vector2.cpy",
             "com.badlogic.gdx.math.Vector2.hashCode",
@@ -188,7 +198,11 @@ project(":core") {
         "implementation"("org.jetbrains.kotlinx:kotlinx-coroutines-core:$coroutinesVersion")
         "implementation"("org.jetbrains.kotlin:kotlin-reflect:$kotlinVersion")
 
-        "implementation"("io.github.yairm210:purity-annotations:1.3.4")
+        // TW: annotations bumped 1.3.4 -> 1.7.1 for upstream's @Mutated; the purity *plugin* stays at 1.3.3 (tied to our Kotlin 2.1.21)
+        "implementation"("io.github.yairm210:purity-annotations:1.7.1")
+
+        // TW: needed by upstream's PathingMap (MutableIntList)
+        "implementation"("androidx.collection:collection:1.4.5")
 
         "implementation"("io.ktor:ktor-client-core:$ktorVersion")
         "implementation"("io.ktor:ktor-client-cio:$ktorVersion")

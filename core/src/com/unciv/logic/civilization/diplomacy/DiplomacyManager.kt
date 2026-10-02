@@ -3,9 +3,11 @@ package com.unciv.logic.civilization.diplomacy
 import com.badlogic.gdx.graphics.Color
 import com.unciv.Constants
 import com.unciv.logic.IsPartOfGameInfoSerialization
+import com.unciv.logic.civilization.AlertType
 import com.unciv.logic.civilization.Civilization
 import com.unciv.logic.civilization.NotificationCategory
 import com.unciv.logic.civilization.NotificationIcon
+import com.unciv.logic.civilization.PopupAlert
 import com.unciv.logic.trade.Trade
 import com.unciv.logic.trade.TradeEvaluation
 import com.unciv.logic.trade.TradeLogic
@@ -75,6 +77,10 @@ enum class DiplomacyFlags {
     DiscoveredSpiesInOurCities,
     AgreedToNotSendSpies,
     IgnoreThemSendingSpies,
+    
+    AgreedToNotAttackUs,
+    MilitaryPresenceNearBorderOrAttackedUsDespitePromise,
+    IgnoreMilitaryPresenceNearBorder,
 
     ProvideMilitaryUnit,
     MarriageCooldown,
@@ -109,9 +115,12 @@ enum class DiplomaticModifiers(val text: String) {
     RefusedToNotSettleCitiesNearUs("You refused to stop settling cities near us"),
     RefusedToNotSpreadReligionToUs("You refused to stop spreading religion to us"),
     RefusedToNotSendingSpiesToUs("You refused to stop spying on us"),
+    RefusedToPromiseNotToAttackUs("You declared war on us after we questioned the positioning of your military."),
     BetrayedPromiseToNotSettleCitiesNearUs("You betrayed your promise to not settle cities near us"),
     BetrayedPromiseToNotSpreadReligionToUs("You betrayed your promise to not spread your religion to us"),
     BetrayedPromiseToNotSendingSpiesToUs("You betrayed your promise to stop spying on us"),
+    BetrayedPromiseToNotAttackUs("You betrayed your promise to not attack us!"),
+    BetrayedPromiseToNotAttackOtherCiv("You were observed betraying your promise to not declare war!"),
     
     UnacceptableDemands("Your arrogant demands are in bad taste"),
     UsedNuclearWeapons("Your use of nuclear weapons is disgusting!"),
@@ -141,6 +150,7 @@ enum class DiplomaticModifiers(val text: String) {
     FulfilledPromiseToNotSettleCitiesNearUs("You fulfilled your promise to stop settling cities near us!"),
     FulfilledPromiseToNotSpreadReligion("You fulfilled your promise to stop spreading religion to us!"),
     FulfilledPromiseToNotSpy("You fulfilled your promise to stop spying on us!"),
+    FulfilledPromiseToNotAttackUs("You fulfilled your promise to not attack us!"),
     GaveUsUnits("You gave us units!"),
     GaveUsGifts("We appreciate your gifts"),
     ReturnedCapturedUnits("You returned captured units to us"),
@@ -182,6 +192,15 @@ class DiplomacyManager() : IsPartOfGameInfoSerialization {
         if (!::_otherCiv.isInitialized)
             _otherCiv = civInfo.gameInfo.getCivilization(otherCivName)
         return _otherCiv
+    }
+    
+    @Cache
+    @Transient
+    private lateinit var _context: GameContext
+    @get:Readonly val state: GameContext get() {
+        if (!::_context.isInitialized)
+            _context = GameContext(civInfo, otherCiv)
+        return _context
     }
 
     // since this needs to be checked a lot during travel, putting it in a transient is a good performance booster
@@ -470,13 +489,15 @@ class DiplomacyManager() : IsPartOfGameInfoSerialization {
     internal fun getCityStateInfluenceRestingPoint(): Float {
         var restingPoint = 0f
 
-        for (unique in otherCiv.getMatchingUniques(UniqueType.CityStateRestingPoint))
+        otherCiv.forEachMatchingUnique(UniqueType.CityStateRestingPoint) { unique ->
             restingPoint += unique.params[0].toInt()
+        }
 
         if (civInfo.cities.any() && civInfo.getCapital() != null)
-            for (unique in otherCiv.getMatchingUniques(UniqueType.RestingPointOfCityStatesFollowingReligionChange))
+            otherCiv.forEachMatchingUnique(UniqueType.RestingPointOfCityStatesFollowingReligionChange) { unique ->
                 if (otherCiv.religionManager.religion?.name == civInfo.getCapital()!!.religion.getMajorityReligionName())
                     restingPoint += unique.params[0].toInt()
+            }
 
         if (diplomaticStatus == DiplomaticStatus.Protector) restingPoint += 10
 
@@ -497,8 +518,9 @@ class DiplomacyManager() : IsPartOfGameInfoSerialization {
         }
 
         var modifierPercent = 0f
-        for (unique in otherCiv.getMatchingUniques(UniqueType.CityStateInfluenceDegradation))
+        otherCiv.forEachMatchingUnique(UniqueType.CityStateInfluenceDegradation) { unique ->
             modifierPercent += unique.params[0].toFloat()
+        }
 
         val religion = if (civInfo.cities.isEmpty() || civInfo.getCapital() == null) null
             else civInfo.getCapital()!!.religion.getMajorityReligionName()
@@ -506,7 +528,7 @@ class DiplomacyManager() : IsPartOfGameInfoSerialization {
             modifierPercent -= 25f  // 25% slower degrade when sharing a religion
 
         for (civ in civInfo.gameInfo.civilizations.filter { it.isMajorCiv() && it != otherCiv}) {
-            for (unique in civ.getMatchingUniques(UniqueType.OtherCivsCityStateRelationsDegradeFaster)) {
+            civ.forEachMatchingUnique(UniqueType.OtherCivsCityStateRelationsDegradeFaster) { unique ->
                 modifierPercent += unique.params[0].toFloat()
             }
         }
@@ -650,11 +672,26 @@ class DiplomacyManager() : IsPartOfGameInfoSerialization {
 
         // TW: Coalition follow-up — separate-peace member is removed; leader peace dissolves the coalition.
         com.unciv.logic.diplomacy.coalition.CoalitionManager.onPeaceMade(civInfo, otherCiv)
+
+        civInfo.forEachTriggeredUnique(UniqueType.TriggerUponSigningPeace, ignoreCities = false) { unique ->
+            if (otherCiv.matchesFilter(unique.params[0])) {
+                UniqueTriggerActivation.triggerUnique(unique, civInfo)
+            }
+        }
+
+        otherCiv.forEachTriggeredUnique(UniqueType.TriggerUponSigningPeace, ignoreCities = false) { unique ->
+            if (civInfo.matchesFilter(unique.params[0])) {
+                UniqueTriggerActivation.triggerUnique(unique, otherCiv)
+            }
+        }
     }
 
     @Readonly fun hasFlag(flag: DiplomacyFlags) = flagsCountdown.containsKey(flag.name)
-    fun setFlag(flag: DiplomacyFlags, amount: Int) {
-        flagsCountdown[flag.name] = amount
+    
+    fun setFlag(flag: DiplomacyFlags, amount: Int, adjustWithGameSpeed: Boolean = false) {
+        flagsCountdown[flag.name] =
+            if (adjustWithGameSpeed) (amount * civInfo.gameInfo.speed.modifier).roundToInt()
+            else amount
     }
 
     /** 0 indicates 'flag does not exist' */
@@ -697,6 +734,7 @@ class DiplomacyManager() : IsPartOfGameInfoSerialization {
     fun signDeclarationOfFriendship() {
         setModifier(DiplomaticModifiers.DeclarationOfFriendship, 35f)
         otherCivDiplomacy().setModifier(DiplomaticModifiers.DeclarationOfFriendship, 35f)
+        // before adjusting with game speed - consider side effects
         setFlag(DiplomacyFlags.DeclarationOfFriendship, 30)
         otherCivDiplomacy().setFlag(DiplomacyFlags.DeclarationOfFriendship, 30)
 
@@ -710,10 +748,12 @@ class DiplomacyManager() : IsPartOfGameInfoSerialization {
 
         // Ignore contitionals as triggerUnique will check again, and that would break
         // UniqueType.ConditionalChance - 25% declared chance would work as 6% actual chance
-        for (unique in civInfo.getTriggeredUniques(UniqueType.TriggerUponDeclaringFriendship, GameContext.IgnoreConditionals))
+        civInfo.forEachTriggeredUnique(UniqueType.TriggerUponDeclaringFriendship, GameContext.IgnoreConditionals, ignoreCities = false) { unique ->
             UniqueTriggerActivation.triggerUnique(unique, civInfo)
-        for (unique in otherCiv.getTriggeredUniques(UniqueType.TriggerUponDeclaringFriendship, GameContext.IgnoreConditionals))
+        }
+        otherCiv.forEachTriggeredUnique(UniqueType.TriggerUponDeclaringFriendship, GameContext.IgnoreConditionals, ignoreCities = false) { unique ->
             UniqueTriggerActivation.triggerUnique(unique, otherCiv)
+        }
     }
 
     internal fun setFriendshipBasedModifier() {
@@ -760,10 +800,12 @@ class DiplomacyManager() : IsPartOfGameInfoSerialization {
 
         // Ignore contitionals as triggerUnique will check again, and that would break
         // UniqueType.ConditionalChance - 25% declared chance would work as 6% actual chance
-        for (unique in civInfo.getTriggeredUniques(UniqueType.TriggerUponSigningDefensivePact, GameContext.IgnoreConditionals))
+        civInfo.forEachTriggeredUnique(UniqueType.TriggerUponSigningDefensivePact, GameContext.IgnoreConditionals, ignoreCities = false) { unique ->
             UniqueTriggerActivation.triggerUnique(unique, civInfo)
-        for (unique in otherCiv.getTriggeredUniques(UniqueType.TriggerUponSigningDefensivePact, GameContext.IgnoreConditionals))
+        }
+        otherCiv.forEachTriggeredUnique(UniqueType.TriggerUponSigningDefensivePact, GameContext.IgnoreConditionals, ignoreCities = false) { unique ->
             UniqueTriggerActivation.triggerUnique(unique, otherCiv)
+        }
     }
 
     internal fun setDefensivePactBasedModifier() {
@@ -828,9 +870,14 @@ class DiplomacyManager() : IsPartOfGameInfoSerialization {
         otherCivDiplomacy().setModifier(DiplomaticModifiers.Denunciation, otherCivOpinionChangeFromBeingDenounced)
         
         // denouncements are active for 30 turns
+        // before adjusting with game speed - consider possible side effects of this
         setFlag(DiplomacyFlags.Denunciation, 30)
         
-        // TODO: make denouncement more impactful with a popup
+        // the denounced civ will get a popup
+        otherCiv.popupAlerts.add(
+            PopupAlert(AlertType.Denounced, civInfo.civID)
+        )
+        // ...and a notification as a reminder for the rest of the turn
         otherCiv.addNotification(
             "[${civInfo.civName}] has denounced us!",
             NotificationCategory.Diplomacy,
@@ -865,22 +912,34 @@ class DiplomacyManager() : IsPartOfGameInfoSerialization {
         }
     }
 
-    @Readonly
-    private fun speedAdjustedFlagDuration(duration: Int): Int = (duration * civInfo.gameInfo.speed.modifier).roundToInt()
-    
+    /**
+     * Queues a PopupAlert to be displayed on [otherCiv]'s turn
+     * If a popup of the same type is already queued, do nothing.
+     */
+    private fun queueOtherCivPopupIfUnique(popup: PopupAlert) {
+        if (otherCiv.popupAlerts.none { it.type == popup.type && it.value == popup.value })
+            otherCiv.popupAlerts.add(popup)
+    }
+
     fun agreeToDemand(demand: Demand){
-        otherCivDiplomacy().setFlag(demand.agreedToDemand, speedAdjustedFlagDuration(100))
+        otherCivDiplomacy().setFlag(demand.agreedToDemand, 100, true)
         addModifier(DiplomaticModifiers.UnacceptableDemands, -10f)
         val text = demand.agreedToDemandText.fillPlaceholders(civInfo.civName)
         otherCiv.addNotification(text, NotificationCategory.Diplomacy, NotificationIcon.Diplomacy, civInfo.civName)
+        queueOtherCivPopupIfUnique(PopupAlert(AlertType.AcceptingDemand, civInfo.civID))
     }
     
     fun refuseDemand(demand: Demand) {
         addModifier(DiplomaticModifiers.UnacceptableDemands, -20f)
-        otherCivDiplomacy().setFlag(demand.willIgnoreViolation, speedAdjustedFlagDuration(100))
-        otherCivDiplomacy().addModifier(demand.refusedDiplomaticModifier, -15f)
+        otherCivDiplomacy().setFlag(demand.willIgnoreViolation, 100, true)
         val text = demand.refusedDemandText.fillPlaceholders(civInfo.civName)
         otherCiv.addNotification(text, NotificationCategory.Diplomacy, NotificationIcon.Diplomacy, civInfo.civName)
+        queueOtherCivPopupIfUnique(PopupAlert(AlertType.RejectingDemand, civInfo.civID))
+        if (demand == Demand.DoNotAttackUs)
+            // no modifier penalty for refusal, they respect our honesty
+            declareWar()
+        else
+            otherCivDiplomacy().addModifier(demand.refusedDiplomaticModifier, -15f)
     }
 
     fun sideWithCityState() {

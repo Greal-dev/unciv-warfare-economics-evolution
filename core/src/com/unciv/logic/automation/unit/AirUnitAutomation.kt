@@ -32,8 +32,9 @@ object AirUnitAutomation {
 
         if (friendlyUsedFighterCount <= enemyFighters) {
             @Readonly fun airSweepDamagePercentBonus(): Int {
-                return unit.getMatchingUniques(UniqueType.StrengthWhenAirsweep)
-                    .sumOf { it.params[0].toInt() }
+                var total = 0
+                unit.forEachMatchingUnique(UniqueType.StrengthWhenAirsweep) { total += it.params[0].toInt() }
+                return total
             }
 
             // If we are outnumbered, don't heal after attacking and don't have an Air Sweep bonus
@@ -62,11 +63,12 @@ object AirUnitAutomation {
 
         val citiesByNearbyAirUnits = pathsToCities.keys
             .groupBy { key ->
-                key.getTilesInDistance(unit.getMaxMovementForAirUnits())
-                    .count {
-                        val firstAirUnit = it.airUnits.firstOrNull()
-                        firstAirUnit != null && firstAirUnit.civ.isAtWarWith(unit.civ)
-                    }
+                var count = 0
+                key.forEachTileInDistance(unit.getMaxMovementForAirUnits()) {
+                    val firstAirUnit = it.airUnits.firstOrNull()
+                    if (firstAirUnit != null && firstAirUnit.civ.isAtWarWith(unit.civ)) count++
+                }
+                count
             }
 
         if (citiesByNearbyAirUnits.keys.any { it != 0 }) {
@@ -179,7 +181,7 @@ object AirUnitAutomation {
             // We can only account for visible units
             if (targetTile.isVisible(civ)) {
                 for (targetUnit in targetTile.getUnits()) {
-                    if (targetUnit.isInvisible(civ)) continue
+                    if (!targetUnit.isVisibleTo(civ)) continue
                     // If we are nuking a unit at ground zero, it is more likely to be destroyed
                     val tileExplosionValue = if (targetTile == tile) 80 else 50
 
@@ -199,7 +201,7 @@ object AirUnitAutomation {
             else if (targetTile.owningCity != null) {
                 val owningCiv = targetTile.owningCity?.civ!!
                 // If there is a tile to add fallout to there is a 50% chance it will get fallout
-                if (!(tile.isWater || tile.isImpassible() || targetTile.hasFalloutEquivalent()))
+                if (!(targetTile.isWater || targetTile.isImpassible() || targetTile.hasFalloutEquivalent()))
                     explosionValue += evaluateCivValue(owningCiv, -40, 10)
                 // If there is an improvment to pillage
                 if (targetTile.improvement != null && !targetTile.improvementIsPillaged)

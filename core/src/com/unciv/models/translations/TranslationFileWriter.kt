@@ -17,6 +17,7 @@ import com.unciv.models.ruleset.GlobalUniques
 import com.unciv.models.ruleset.PolicyBranch
 import com.unciv.models.ruleset.Quest
 import com.unciv.models.ruleset.RuinReward
+import com.unciv.models.ruleset.Ruleset
 import com.unciv.models.ruleset.RulesetCache
 import com.unciv.models.ruleset.Specialist
 import com.unciv.models.ruleset.Speed
@@ -25,12 +26,15 @@ import com.unciv.models.ruleset.Victory
 import com.unciv.models.ruleset.nation.CityStateType
 import com.unciv.models.ruleset.nation.Difficulty
 import com.unciv.models.ruleset.nation.Nation
+import com.unciv.models.ruleset.nation.Personality
+import com.unciv.models.ruleset.nation.PersonalityValue
 import com.unciv.models.ruleset.tech.Era
 import com.unciv.models.ruleset.tech.TechColumn
 import com.unciv.models.ruleset.tile.Terrain
 import com.unciv.models.ruleset.tile.TileImprovement
 import com.unciv.models.ruleset.tile.TileResource
 import com.unciv.models.ruleset.unique.Countables
+import com.unciv.models.ruleset.unique.DeprecatedUniqueType
 import com.unciv.models.ruleset.unique.Unique
 import com.unciv.models.ruleset.unique.UniqueFlag
 import com.unciv.models.ruleset.unique.UniqueParameterType
@@ -41,19 +45,23 @@ import com.unciv.models.ruleset.unit.UnitNameGroup
 import com.unciv.models.ruleset.unit.Promotion
 import com.unciv.models.ruleset.unit.UnitType
 import com.unciv.ui.components.input.KeyboardBinding
+import com.unciv.utils.Concurrency
 import com.unciv.utils.Log
 import com.unciv.utils.debug
+import com.unciv.utils.isRunFromJar
 import java.io.File
 import java.lang.reflect.Field
 import java.lang.reflect.Modifier
 import org.jetbrains.annotations.VisibleForTesting
 import yairm210.purity.annotations.Pure
 import yairm210.purity.annotations.Readonly
+import kotlin.math.roundToInt
 
 object TranslationFileWriter {
 
     private const val specialNewLineCode = "# This is an empty line "
     private const val languageFileLocation = "jsons/translations/%s.properties"
+    private const val backupFileLocation = "jsons/translations/%s.properties.bak"
     private const val shortDescriptionKey = "Fastlane_short_description"
     private const val shortDescriptionFile = "short_description.txt"
     private const val fullDescriptionKey = "Fastlane_full_description"
@@ -61,26 +69,51 @@ object TranslationFileWriter {
     // Current dir on desktop should be assets, so use two '..' get us to project root
     private const val fastlanePath = "../../fastlane/metadata/android/"
 
+    // For preallocating collections only:
+    /** Relation all lines including comments and duplidates to actual translation keys */
+    private const val empiricLinesToKeysFactor = 1.86
+    /** Relation all resulting lines including comments to actual translation keys */
+    private const val empiricParsedToKeysFactor = 1.29
+
+    private fun BaseRuleset.jsonFolderName() = "jsons/$fullName"
+    private fun BaseRuleset.jsonFolder() = if (UncivGame.isCurrentInitialized())
+            UncivGame.Current.files.getLocalFile(jsonFolderName())
+        else Gdx.app.files.local(jsonFolderName())
+    private fun defaultFileFilter(file: File) = file.name.endsWith(".json", true)
+
     //region Update translation files
-    fun writeNewTranslationFiles(): String {
+    fun writeNewTranslationFiles(modSelection: String, backup: Boolean): String {
+        val allSelected = modSelection == "All mods"
+        val baseSelected = allSelected || BaseRuleset.entries.any { it.fullName == modSelection }
+
         try {
             val translations = Translations()
             translations.readAllLanguagesTranslation()
+            val modSelected = !baseSelected && modSelection in translations.modsWithTranslations
 
             var fastlaneOutput = ""
             // check to make sure we're not running from a jar since these users shouldn't need to
             // regenerate base game translation and fastlane files
-            if (TranslationFileWriter.javaClass.`package`.specificationVersion == null) {
+            if (baseSelected && !isRunFromJar(this)) {
                 val percentages = generateTranslationFiles(translations)
                 writeLanguagePercentages(percentages)
                 fastlaneOutput = "\n" + writeTranslatedFastlaneFiles(translations)
             }
 
-            // See #5168 for some background on this
-            for ((modName, modTranslations) in translations.modsWithTranslations) {
+            fun processMod(modName: String, modTranslations: Translations) {
                 val modFolder = UncivGame.Current.files.getModFolder(modName)
-                val modPercentages = generateTranslationFiles(modTranslations, modFolder, translations)
+                val modPercentages = generateTranslationFiles(modTranslations, modFolder, translations, backup)
                 writeLanguagePercentages(modPercentages, modFolder)  // unused by the game but maybe helpful for the mod developer
+            }
+            if (allSelected) {
+                // See #5168 for some background on this
+                Concurrency.parallelize(
+                    translations.modsWithTranslations.map { (modName, modTranslations) ->
+                        { processMod(modName, modTranslations) }
+                    }
+                )
+            } else if (modSelected) {
+                processMod(modSelection, translations.modsWithTranslations[modSelection]!!)
             }
 
             return "Translation files are generated successfully.".tr() + fastlaneOutput
@@ -94,192 +127,355 @@ object TranslationFileWriter {
             if (modFolder != null) modFolder.child(fileLocation)
             else UncivGame.Current.files.getLocalFile(fileLocation)
 
+    /** One line from the merged translation source, parsed once and reused for every language. */
+    private data class ParsedLine(
+        val raw: String,
+        val isTranslatable: Boolean,
+        val translationKey: String = "",
+        val hashMapKey: String = "",
+        val defaultValue: String = ""
+    )
+
+    /** Result of resolving a single [ParsedLine] against one language's translations. */
+    private data class LineResolution(
+        val value: String,
+        val isTranslated: Boolean,
+        /** Whether this line should count towards the "total translatable lines" denominator. */
+        val countsTowardTotal: Boolean
+    )
+
+    private val multipleNewlinesRegex = Regex("\n{4,}")
+
     /**
      * Writes new language files per Mod or for BaseRuleset - only each language that exists in [translations].
+     * @param translations Result of Translations().readAllLanguagesTranslation(), base or mod-specific
+     * @param modFolder Points to the mod root folder when processing a mod
      * @param baseTranslations For a mod, pass the base translations here so strings already existing there can be seen
-     * @return a map with the percentages of translated lines per language
+     * @param backup Whether to back up the old files
+     * @return A map with the percentages of translated lines per language
      */
     private fun generateTranslationFiles(
         translations: Translations,
         modFolder: FileHandle? = null,
-        baseTranslations: Translations? = null
+        baseTranslations: Translations? = null,
+        backup: Boolean = false
     ): HashMap<String, Int> {
+        val linesToTranslate = ArrayList<String>((translations.size * empiricLinesToKeysFactor).roundToInt())
+        val fileNameToGeneratedStrings: Map<String, Set<String>>
 
-        val fileNameToGeneratedStrings = LinkedHashMap<String, MutableSet<String>>()
-        val linesToTranslate = mutableListOf<String>()
-
-        if (modFolder == null) { // base game
-            TranslationFileReader.readTemplates {
-                linesToTranslate.addAll(it)
-            }
-
-            linesToTranslate += "\n\n#################### Lines from Unique Types #######################\n"
-            for (uniqueType in UniqueType.entries) {
-                val deprecationAnnotation = uniqueType.getDeprecationAnnotation()
-                if (deprecationAnnotation != null) continue
-                if (uniqueType.flags.contains(UniqueFlag.HiddenToUsers)) continue
-
-                linesToTranslate += "${uniqueType.getTranslatable()} = "
-            }
-
-            for (uniqueParameterType in UniqueParameterType.entries) {
-                val strings = uniqueParameterType.getTranslationWriterStringsForOutput()
-                if (strings.isEmpty()) continue
-                linesToTranslate += "\n######### ${uniqueParameterType.displayName} ###########\n"
-                linesToTranslate.addAll(strings.map { "$it = " })
-            }
-
-            for (uniqueTarget in UniqueTarget.entries)
-                linesToTranslate += "$uniqueTarget = "
-
-            linesToTranslate += "\n\n#################### Lines from Countables #######################\n"
-            for (countable in Countables.entries)
-                if (countable.text.isNotEmpty())
-                    linesToTranslate += "${countable.text} = "
-
-            linesToTranslate += "\n\n#################### Lines from spy actions #######################\n"
-            for (spyAction in SpyAction.entries)
-                linesToTranslate += "${spyAction.displayString} = "
-
-            linesToTranslate += "\n\n#################### Lines from diplomatic modifiers #######################\n"
-            for (diplomaticModifier in DiplomaticModifiers.entries)
-                linesToTranslate += "${diplomaticModifier.text} = "
-
-            linesToTranslate += "\n\n#################### Lines from demands #######################\n"
-            for (demand in Demand.entries) {
-                linesToTranslate += "\n### ${demand.name} \n"
-                val uiTexts = listOf(demand.demandText, demand.acceptDemandText, demand.refuseDemandText,
-                    demand.violationNoticedText, demand.agreedToDemandText, demand.refusedDemandText,
-                    demand.wePromisedText, demand.theyPromisedText)
-                for (text in uiTexts)
-                    linesToTranslate += "$text = "
-            }
-
-            linesToTranslate += "\n\n#################### Lines from key bindings #######################\n"
-            for (bindingLabel in KeyboardBinding.getTranslationEntries())
-                linesToTranslate += "$bindingLabel = "
-
-            for (baseRuleset in BaseRuleset.entries) {
-                val generatedStringsFromBaseRuleset =
-                        GenerateStringsFromJSONs(UncivGame.Current.files.getLocalFile("jsons/${baseRuleset.fullName}"))
-                for (entry in generatedStringsFromBaseRuleset)
-                    fileNameToGeneratedStrings[entry.key + " from " + baseRuleset.fullName] = entry.value
-            }
-
-            // Global Tutorials reside one level above the base rulesets - if we had only per-ruleset tutorials the following lines would be unnecessary
-            val tutorialStrings = GenerateStringsFromJSONs(UncivGame.Current.files.getLocalFile("jsons")) { it.name == "Tutorials.json" }
-            fileNameToGeneratedStrings["Global Tutorials"] = tutorialStrings.values.first()
+        if (modFolder == null) {
+            linesToTranslate.collectTemplateLines()
+            linesToTranslate.collectUniqueSystemLines()
+            linesToTranslate.collectGameplayDataLines()
+            fileNameToGeneratedStrings = collectBaseGameJsonStrings()
         } else {
-            fileNameToGeneratedStrings.putAll(GenerateStringsFromJSONs(modFolder.child("jsons")))
+            fileNameToGeneratedStrings = GenerateStringsFromJSONs(modFolder.child("jsons"))
         }
+        linesToTranslate.appendGeneratedStringsSections(fileNameToGeneratedStrings)
 
-        for ((key, value) in fileNameToGeneratedStrings) {
-            if (value.isEmpty()) continue
-            linesToTranslate += "\n#################### Lines from $key ####################\n"
-            linesToTranslate.addAll(value)
-        }
-        fileNameToGeneratedStrings.clear()  // No longer needed
+        val parsedLines = parseLines(linesToTranslate)
+        val languages = translations.getLanguages()
 
-        var countOfTranslatableLines = 0
-        val countOfTranslatedLines = HashMap<String, Int>()
+        // NOTE: The "total translatable lines" denominator is derived from a random language's
+        // resolution state - but that's OK since countsTowardTotal isn't dependent on the language.
+        val countOfTranslatableLines = if (languages.isEmpty()) 0
+        else countTranslatableLines(parsedLines, languages.first(), translations, baseTranslations)
 
-        // iterate through all available languages
-        for ((languageIndex, language) in translations.getLanguages().withIndex()) {
-            var translationsOfThisLanguage = 0
-            val stringBuilder = StringBuilder()
+        val countOfTranslatedLines = java.util.concurrent.ConcurrentHashMap<String, Int>()
 
-            // This is so we don't add the same keys twice if we have the same value in both Vanilla and G&K
-            val existingTranslationKeys = HashSet<String>()
-
-            for (line in linesToTranslate) {
-                if (!line.contains(" = ")) {
-                    // small hack to insert empty lines
-                    if (line.startsWith(specialNewLineCode)) {
-                        stringBuilder.appendLine()
-                    } else // copy as-is
-                        stringBuilder.appendLine(line)
-                    continue
+        // each language writes its own independent file, so this can run in parallel
+        Concurrency.parallelize(
+            languages.map { language ->
+                {
+                    countOfTranslatedLines[language] =
+                        writeLanguageFile(language, parsedLines, translations, baseTranslations, modFolder, backup)
                 }
-
-                val lineParts = line.split(" = ")
-                val translationKey = lineParts[0].replace("\\n", "\n")
-                val hashMapKey = translationKey
-                        .replace(pointyBraceRegex, "")
-                        .replace(squareBraceRegex, "[]")
-
-                if (existingTranslationKeys.contains(hashMapKey)) continue // don't add it twice
-                existingTranslationKeys.add(hashMapKey)
-
-                fun incrementCountOfTranslatableLines() {
-                    // count translatable lines only once
-                    if (languageIndex == 0) countOfTranslatableLines++
-                }
-
-                val isPretranslatable = lineParts[1].isNotEmpty()
-                val existingTranslation = translations[hashMapKey]
-                var translationValue = if (existingTranslation != null && language in existingTranslation) {
-                    // String has translation - copy it
-                    incrementCountOfTranslatableLines()
-                    translationsOfThisLanguage++
-                    existingTranslation[language]!!
-                } else if (baseTranslations?.get(hashMapKey)?.containsKey(language) == true) {
-                    // String is used in the mod but also exists in base - ignore
-                    continue
-                } else if (isPretranslatable) {
-                    // We could omit the following two lines so pre-translatables would not count towards completion percentages at all
-                    incrementCountOfTranslatableLines()
-                    translationsOfThisLanguage++
-                    lineParts[1]
-                } else {
-                    // String is not translated either here or in base
-                    if (translationKey != Translations.conditionalOrderingKey) {
-                        incrementCountOfTranslatableLines()
-                        stringBuilder.appendLine(" # Requires translation!")
-                    }
-                    ""
-                }
-
-                // THE PROBLEM
-                // When we come to change params written in the TranslationFileWriter,
-                //  this messes up the param name matching in existing translations.
-                // Tests fail and much manual work was required.
-                // SO, as a fix, for each translation where a single param is different than in the source line,
-                // we try to autocorrect it.
-                if (translationValue.contains('[')) {
-                    val paramsOfKey = translationKey.getPlaceholderParameters()
-                    val paramsOfValue = translationValue.getPlaceholderParameters()
-                    val paramsOfKeyNotInValue = paramsOfKey.filterNot { it in paramsOfValue }
-                    val paramsOfValueNotInKey = paramsOfValue.filterNot { it in paramsOfKey }
-                    if (paramsOfKeyNotInValue.size == 1 && paramsOfValueNotInKey.size == 1)
-                        translationValue = translationValue.replace(
-                            "[" + paramsOfValueNotInKey.first() + "]",
-                            "[" + paramsOfKeyNotInValue.first() + "]"
-                        )
-                }
-
-                stringBuilder.appendTranslation(translationKey, translationValue)
             }
-
-            countOfTranslatedLines[language] = translationsOfThisLanguage
-
-            val fileWriter = getFileHandle(modFolder, languageFileLocation.format(language))
-            // Any time you have more than 3 line breaks, make it 3
-            val finalFileText = stringBuilder.toString().replace(Regex("\n{4,}"),"\n\n\n")
-            fileWriter.writeString(finalFileText, false, TranslationFileReader.charset)
-        }
+        )
 
         // Calculate the percentages of translations
-        // It should be done after the loop of languages, since the countOfTranslatableLines is not known in the 1st iteration
-        for (entry in countOfTranslatedLines)
-            entry.setValue(if (countOfTranslatableLines <= 0) 100 else entry.value * 100 / countOfTranslatableLines)
+        val result = HashMap<String, Int>()
+        for ((language, translatedCount) in countOfTranslatedLines)
+            result[language] = if (countOfTranslatableLines <= 0) 100 else translatedCount * 100 / countOfTranslatableLines
 
-        return countOfTranslatedLines
+        return result
+    }
+
+    private fun MutableList<String>.collectTemplateLines() {
+        TranslationFileReader.readTemplates { addAll(it) }
+    }
+
+    /** Only for Base ruleset scanning */
+    private fun MutableList<String>.collectUniqueSystemLines() {
+        add("\n\n#################### Lines from Unique Types #######################\n")
+        for (uniqueType in UniqueType.entries) {
+            val deprecationAnnotation = uniqueType.getDeprecationAnnotation()
+            if (deprecationAnnotation != null) continue
+            if (uniqueType.flags.contains(UniqueFlag.HiddenToUsers)) continue
+            add("${uniqueType.getTranslatable()} = ")
+        }
+
+        for (uniqueParameterType in UniqueParameterType.entries) {
+            val strings = uniqueParameterType.getTranslationWriterStringsForOutput()
+            if (strings.isEmpty()) continue
+            add("\n######### ${uniqueParameterType.displayName} ###########\n")
+            addAll(strings.map { "$it = " })
+        }
+
+        for (uniqueTarget in UniqueTarget.entries)
+            add("$uniqueTarget = ")
+    }
+
+    private fun MutableList<String>.collectGameplayDataLines() {
+        add("\n\n#################### Lines from Countables #######################\n")
+        for (countable in Countables.entries)
+            if (countable.text.isNotEmpty())
+                add("${countable.text} = ")
+
+        add("\n\n#################### Lines from spy actions #######################\n")
+        for (spyAction in SpyAction.entries)
+            add("${spyAction.displayString} = ")
+
+        add("\n\n#################### Lines from diplomatic modifiers #######################\n")
+        for (diplomaticModifier in DiplomaticModifiers.entries)
+            add("${diplomaticModifier.text} = ")
+
+        add("\n\n#################### Lines from demands #######################\n")
+        for (demand in Demand.entries) {
+            add("\n### ${demand.name} \n")
+            val uiTexts = listOf(demand.demandText, demand.acceptDemandText, demand.refuseDemandText,
+                demand.violationNoticedText, demand.agreedToDemandText, demand.refusedDemandText,
+                demand.wePromisedText, demand.theyPromisedText)
+            for (text in uiTexts)
+                add("$text = ")
+        }
+
+        add("\n\n#################### Lines from personality biases #######################\n")
+        for (focus in PersonalityValue.entries)
+            add("${focus.description} = ")
+
+        add("\n\n#################### Lines from key bindings #######################\n")
+        for (bindingLabel in KeyboardBinding.getTranslationEntries())
+            add("$bindingLabel = ")
+    }
+
+    /** @return A map of section headers to sets of translatables */
+    private fun collectBaseGameJsonStrings(): LinkedHashMap<String, MutableSet<String>> {
+        val fileNameToGeneratedStrings = LinkedHashMap<String, MutableSet<String>>()
+
+        for (baseRuleset in BaseRuleset.entries) {
+            val generatedStringsFromBaseRuleset = GenerateStringsFromJSONs(baseRuleset)
+            for (entry in generatedStringsFromBaseRuleset)
+                fileNameToGeneratedStrings[entry.key + " from " + baseRuleset.fullName] = entry.value
+        }
+
+        // Global Tutorials reside one level above the base rulesets - if we had only per-ruleset tutorials the following lines would be unnecessary
+        val tutorialStrings = GenerateStringsFromJSONs(UncivGame.Current.files.getLocalFile("jsons")) { it.name == "Tutorials.json" }
+        fileNameToGeneratedStrings["Global Tutorials"] = tutorialStrings.values.first()
+
+        return fileNameToGeneratedStrings
+    }
+
+    private fun MutableList<String>.appendGeneratedStringsSections(
+        fileNameToGeneratedStrings: Map<String, Set<String>>
+    ) {
+        for ((key, value) in fileNameToGeneratedStrings) {
+            if (value.isEmpty()) continue
+            add("\n#################### Lines from $key ####################\n")
+            addAll(value)
+        }
+    }
+
+    @Pure private fun String.toHashKey() =
+        replace(pointyBraceRegex, "")
+        .replace(squareBraceRegex, "[]")
+    @Pure private fun String.unEscapeNewLines() =
+        replace("\\n", "\n")
+    @Pure private fun String.escapeNewLines() =
+        replace("\n", "\\n")
+
+        /**
+     * Parses the flat [linesToTranslate] into structured, deduplicated [ParsedLine]s exactly once
+     */
+    private fun parseLines(linesToTranslate: List<String>): List<ParsedLine> {
+        val expectedCount = (linesToTranslate.size / empiricLinesToKeysFactor * empiricParsedToKeysFactor).roundToInt()
+        val existingTranslationKeys = HashSet<String>(expectedCount)
+        val result = ArrayList<ParsedLine>(expectedCount)
+
+        for (line in linesToTranslate) {
+            if (!line.contains(" = ")) {
+                result += ParsedLine(raw = line, isTranslatable = false)
+                continue
+            }
+
+            val eqIndex = line.indexOf(" = ")
+            val translationKey = line.substring(0, eqIndex).unEscapeNewLines()
+            val hashMapKey = translationKey.toHashKey()
+            if (!existingTranslationKeys.add(hashMapKey)) continue // don't add it twice
+
+            val defaultValue = line.substring(eqIndex + 3)
+            result += ParsedLine(line, isTranslatable = true, translationKey, hashMapKey, defaultValue)
+        }
+
+        return result
+    }
+
+    /** Resolves what value (if any) [parsedLine] should get for [language]. Null means "skip entirely". */
+    private fun resolveLine(
+        parsedLine: ParsedLine,
+        language: String,
+        translations: Translations,
+        baseTranslations: Translations?
+    ): LineResolution? {
+        val countsTowardTotal = parsedLine.translationKey != Translations.conditionalOrderingKey
+
+        val existingTranslation = translations[parsedLine.hashMapKey]
+        if (existingTranslation != null && language in existingTranslation) {
+            return LineResolution(existingTranslation[language]!!, isTranslated = true, countsTowardTotal)
+        }
+
+        if (baseTranslations?.get(parsedLine.hashMapKey)?.containsKey(language) == true) {
+            // String is used in the mod but also exists in base - ignore
+            return null
+        }
+
+        if (parsedLine.defaultValue.isNotEmpty()) {
+            // We could treat this as not translated/not counting, so pre-translatables would not
+            // count towards completion percentages at all
+            return LineResolution(parsedLine.defaultValue, isTranslated = true, countsTowardTotal)
+        }
+
+        // String is not translated either here or in base
+        return LineResolution("", isTranslated = false, countsTowardTotal)
+    }
+
+    private fun countTranslatableLines(
+        parsedLines: List<ParsedLine>,
+        referenceLanguage: String,
+        translations: Translations,
+        baseTranslations: Translations?
+    ): Int {
+        var count = 0
+        for (parsedLine in parsedLines) {
+            if (!parsedLine.isTranslatable) continue
+            val resolution = resolveLine(parsedLine, referenceLanguage, translations, baseTranslations) ?: continue
+            if (resolution.countsTowardTotal) count++
+        }
+        return count
+    }
+
+    private fun writeLanguageFile(
+        language: String,
+        parsedLines: List<ParsedLine>,
+        translations: Translations,
+        baseTranslations: Translations?,
+        modFolder: FileHandle?,
+        backup: Boolean
+    ): Int {
+        var translationsOfThisLanguage = 0
+        val stringBuilder = StringBuilder(parsedLines.size * 40) // rough average line length, avoids resizing too often
+
+        // When treating a Mod, ensure we don't delete their work for missing json-generated keys
+        val oldTranslationsForLanguage = mutableSetOf<String>()
+        if (baseTranslations != null)
+            for (entry in translations)
+                if (language in entry.value) oldTranslationsForLanguage.add(entry.key)
+
+        for (parsedLine in parsedLines) {
+            if (!parsedLine.isTranslatable) {
+                // small hack to insert empty lines
+                if (parsedLine.raw.startsWith(specialNewLineCode))
+                    stringBuilder.appendLine()
+                else // copy as-is
+                    stringBuilder.appendLine(parsedLine.raw)
+                continue
+            }
+
+            oldTranslationsForLanguage.remove(parsedLine.hashMapKey)
+
+            val resolution = resolveLine(parsedLine, language, translations, baseTranslations) ?: continue
+
+            if (resolution.isTranslated) {
+                translationsOfThisLanguage++
+            } else if (resolution.countsTowardTotal) {
+                stringBuilder.appendLine(" # Requires translation!")
+            }
+
+            val translationValue = autocorrectSingleParamMismatch(parsedLine.translationKey, resolution.value)
+            stringBuilder.appendTranslation(parsedLine.translationKey, translationValue)
+        }
+
+        val file = getFileHandle(modFolder, languageFileLocation.format(language))
+
+        // Ensure we don't lose any modder's work that is missing templates
+        if (oldTranslationsForLanguage.isNotEmpty())
+            appendUnusedOldTranslations(stringBuilder, file, oldTranslationsForLanguage)
+
+        // Any time you have more than 3 line breaks, make it 3
+        val finalFileText = stringBuilder.toString().replace(multipleNewlinesRegex, "\n\n\n")
+
+        if (backup) {
+            // Mod files get a backup
+            val backup = getFileHandle(modFolder, backupFileLocation.format(language))
+            if (backup.exists()) backup.delete()
+            file.moveTo(backup)
+        }
+        file.writeString(finalFileText, false, TranslationFileReader.charset)
+
+        return translationsOfThisLanguage
+    }
+
+    /**
+     * Fixes [translationValue] when a placeholder name mistmatches the one in [translationKey].
+     *
+     * ##### THE PROBLEM
+     * When we come to change params written in the TranslationFileWriter,
+     * this messes up the param name matching in existing translations.
+     * Tests fail and much manual work was required.
+     *
+     * SO, as a fix, for each translation where a single param is different than in the source line,
+     * we try to autocorrect it.
+     *
+     * @return Usually, [translationValue] unchanged, but if necessary, with one placeholder name replaced
+     */
+    private fun autocorrectSingleParamMismatch(translationKey: String, translationValue: String): String {
+        if (!translationValue.contains('[')) return translationValue
+
+        val paramsOfKey = translationKey.getPlaceholderParameters()
+        val paramsOfValue = translationValue.getPlaceholderParameters()
+        val paramsOfKeyNotInValue = paramsOfKey.filterNot { it in paramsOfValue }
+        val paramsOfValueNotInKey = paramsOfValue.filterNot { it in paramsOfKey }
+
+        if (paramsOfKeyNotInValue.size != 1 || paramsOfValueNotInKey.size != 1) return translationValue
+
+        return translationValue.replace(
+            "[" + paramsOfValueNotInKey.first() + "]",
+            "[" + paramsOfKeyNotInValue.first() + "]"
+        )
+    }
+
+    private fun appendUnusedOldTranslations(
+        stringBuilder: StringBuilder,
+        file: FileHandle,
+        keysToPreserve: Set<String>
+    ) {
+        stringBuilder.appendLine()
+        stringBuilder.appendLine("#################### Possibly unused ####################")
+        stringBuilder.appendLine("# These were found in the original translation file, but not as required translation from the json scan.")
+        stringBuilder.appendLine()
+
+        val oldTranslations = TranslationFileReader.read(file)
+        val oldEntriesWithHashKey = oldTranslations.entries
+            .associateBy { it.key.toHashKey() }
+        for ((hashKey, entry) in oldEntriesWithHashKey) {
+            if (hashKey !in keysToPreserve) continue
+            stringBuilder.appendTranslation(entry.key, entry.value)
+        }
     }
 
     @Pure
     private fun StringBuilder.appendTranslation(key: String, value: String) {
-        appendLine(key.replace("\n", "\\n") +
-                " = " + value.replace("\n", "\\n"))
+        appendLine(key.escapeNewLines() + " = " + value.escapeNewLines())
     }
 
     private fun writeLanguagePercentages(percentages: HashMap<String, Int>, modFolder: FileHandle? = null) {
@@ -302,6 +498,16 @@ object TranslationFileWriter {
     private fun UniqueType.getTranslatable(): String {
         // to get rid of multiple equal parameters, like "[amount] [amount]", don't use the unique.text directly
         //  instead fill the placeholders with incremented values if the previous one exists
+        val placeholderParameters = text.getPlaceholderParameters()
+        if (placeholderParameters.isEmpty()) return text
+        val newPlaceholders = ArrayList<String>()
+        for (placeholderText in placeholderParameters) {
+            newPlaceholders.addNumberedParameter(placeholderText)
+        }
+        return text.fillPlaceholders(*newPlaceholders.toTypedArray())
+    }
+
+    private fun DeprecatedUniqueType.getTranslatable(): String {
         val newPlaceholders = ArrayList<String>()
         for (placeholderText in text.getPlaceholderParameters()) {
             newPlaceholders.addNumberedParameter(placeholderText)
@@ -323,24 +529,40 @@ object TranslationFileWriter {
      *  All work is done right on instantiation.
       */
     private class GenerateStringsFromJSONs(
+        /** Used only to call UniqueParameterType.guessTypeForTranslationWriter */
+        private val ruleset: Ruleset,
         jsonsFolder: FileHandle,
-        fileFilter: (File) -> Boolean = { file -> file.name.endsWith(".json", true) }
+        fileFilter: (File) -> Boolean
     ): LinkedHashMap<String, MutableSet<String>>() {
         // Using LinkedHashMap (instead of HashMap) is important to maintain the order of sections in the translation file
 
-        val ruleset = RulesetCache.getVanillaRuleset()
-        val startMillis = System.currentTimeMillis()
-
-        var uniqueIndexOfNewLine = 0
-        val listOfJSONFiles = jsonsFolder
-            .list(fileFilter)
-            .sortedBy { it.name() }       // generatedStrings maintains order, so let's feed it a predictable one
+        constructor(baseRuleset: BaseRuleset) : this(
+            RulesetCache[baseRuleset.fullName]!!,
+            baseRuleset.jsonFolder(),
+            ::defaultFileFilter
+        )
+        constructor(jsonsFolder: FileHandle, fileFilter: (File) -> Boolean = ::defaultFileFilter) : this(
+            RulesetCache[jsonsFolder.parent().name()]?.takeIf { it.modOptions.isBaseRuleset } ?: RulesetCache[BaseRuleset.Civ_V_GnK.fullName]!!,
+            jsonsFolder, fileFilter
+        )
 
         // One set per json file, secondary loop var. Could be nicer to isolate all per-file
         // processing into another class, but then we'd have to pass uniqueIndexOfNewLine around.
         lateinit var resultStrings: MutableSet<String>
 
         init {
+            val startMillis = System.currentTimeMillis()
+
+            var uniqueIndexOfNewLine = 0
+            fun addNewLine() {
+                // This is a small hack to insert multiple /n into the set, which can't contain identical lines
+                resultStrings.add("$specialNewLineCode ${uniqueIndexOfNewLine++}")
+            }
+
+            val listOfJSONFiles = jsonsFolder
+                .list(fileFilter)
+                .sortedBy { it.name() }       // generatedStrings maintains order, so let's feed it a predictable one
+
             for (jsonFile in listOfJSONFiles) {
                 val filename = jsonFile.nameWithoutExtension()
 
@@ -356,12 +578,11 @@ object TranslationFileWriter {
                 if (data is kotlin.Array<*>) {
                     for (element in data) {
                         serializeElement(element!!) // let's serialize the strings recursively
-                        // This is a small hack to insert multiple /n into the set, which can't contain identical lines
-                        resultStrings.add("$specialNewLineCode ${uniqueIndexOfNewLine++}")
+                        addNewLine()
                     }
                 } else {
                     serializeElement(data)
-                    resultStrings.add("$specialNewLineCode ${uniqueIndexOfNewLine++}")
+                    addNewLine()
                 }
             }
             val displayName = if (jsonsFolder.name() != "jsons") jsonsFolder.name()
@@ -402,13 +623,11 @@ object TranslationFileWriter {
             }
 
             // Do simpler parameter numbering when typed, as the code below is susceptible to problems with nested brackets - UniqueTypes don't have them (yet)!
-            if (unique.type != null) {
-                for ((index, typeList) in unique.type.parameterTypeMap.withIndex()) {
-                    if (typeList.none { it in translatableUniqueParameterTypes }) continue
-                    // Unknown/Comment parameter contents better be offered to translators too
-                    resultStrings.add("${unique.params[index]} = ")
-                }
-                resultStrings.add("${unique.type.getTranslatable()} = ")
+            if (unique.type != null)
+                return submitTypedUnique(unique)
+
+            if (unique.deprecatedType != null) {
+                resultStrings.add("${unique.deprecatedType.getTranslatable()} = ")
                 return
             }
 
@@ -422,12 +641,27 @@ object TranslationFileWriter {
             resultStrings.add("${stringToTranslate.fillPlaceholders(*parameterNames.toTypedArray())} = ")
         }
 
+        fun submitTypedUnique(unique: Unique) {
+            require(unique.type != null)
+            for ((index, typeList) in unique.type.parameterTypeMap.withIndex()) {
+                if (typeList.none { it in translatableUniqueParameterTypes }) continue
+                // Unknown/Comment parameter contents better be offered to translators too
+                if (unique.type == UniqueType.Comment) {
+                    val subUnique = Unique(unique.params[index])
+                    if (subUnique.type != null)
+                        return submitTypedUnique(subUnique)
+                }
+                resultStrings.add("${unique.params[index]} = ")
+            }
+            resultStrings.add("${unique.type.getTranslatable()} = ")
+        }
+
         // Example: PolicyBranch inherits from Policy inherits from RulesetObject.
         // RulesetObject has the name and uniques properties and we wish to include them.
         // So we need superclass recursion to be sure not to miss stuff in the future.
-        // The superclass != null check is made obsolete in theory by the Object check, but better play safe.
+        // The superclass != null check is made obsolete in theory by the Any check, but better play safe.
         fun Class<*>.allSupers(): Sequence<Class<*>> = sequence {
-            if (this@allSupers == Object::class.java) return@sequence
+            if (this@allSupers == Any::class.java) return@sequence
             yield(this@allSupers)
             if (superclass != null)
                 yieldAll(superclass.allSupers())
@@ -461,30 +695,25 @@ object TranslationFileWriter {
                         && UniqueType.HiddenFromCivilopedia.placeholderText in element.uniques)
                     continue
                 val isPreTranslatable = isFieldPreTranslatable(element.javaClass, field)
+                val isParameterized = isFieldParameterized(element.javaClass, field)
                 fun submitCollectionItem(item: Any?) {
                     if (item === null) return
                     if (item !is String) serializeElement(item)
                     else if (isPreTranslatable) submitPretranslatableString(item)
+                    else if (isParameterized) submitString(item, Unique(item))
                     else submitString(item)
                 }
                 // this field can contain sub-objects, let's serialize them as well
                 @Suppress("RemoveRedundantQualifierName")  // to clarify List does _not_ inherit from anything in java.util
                 when {
-                    // Promotion names are not uniques but since we did the "[unitName] ability"
-                    // they need the "parameters" treatment too
-                    // Same for victory milestones
-                    (field.name in fieldsToProcessParameters)
-                            && (fieldValue is java.util.AbstractCollection<*>) ->
-                        for (item in fieldValue)
-                            if (item is String) submitString(item, Unique(item)) else serializeElement(item!!)
                     fieldValue is java.util.AbstractCollection<*> ->
                         for (item in fieldValue)
                             submitCollectionItem(item)
                     fieldValue is kotlin.collections.List<*> ->
                         for (item in fieldValue)
                             submitCollectionItem(item)
-                    element is Promotion && field.name == "name" ->  // see above
-                        submitString(fieldValue.toString(), Unique(fieldValue.toString()))
+                    isParameterized && (fieldValue is String) ->
+                        submitString(fieldValue, Unique(fieldValue))
                     else -> submitString(fieldValue.toString())
                 }
             }
@@ -537,14 +766,22 @@ object TranslationFileWriter {
             )
 
             private val fieldsToProcessParameters = setOf(
-                "uniques", "promotions", "milestones",
+                "uniques",
+                // Promotion names are not uniques but since we did the "[unitName] ability"
+                // they need the "parameters" treatment too
+                "Promotion.name",
+                "promotions",
+                // Same for victory milestones
+                "milestones",
+                // e.g. "See also: [rulesetobject]" in civilopediaText
+                "FormattedLine.text",
             )
 
             @Readonly
             private fun isFieldTypeRelevant(type: Class<*>) =
                     type == String::class.java ||
                     type == java.util.ArrayList::class.java ||
-                    type == java.util.List::class.java ||        // CivilopediaText is not an ArrayList
+                    type == List::class.java ||        // CivilopediaText is not an ArrayList
                     type == java.util.HashSet::class.java ||
                     type.isEnum  // allow scanning Enum names
 
@@ -557,8 +794,7 @@ object TranslationFileWriter {
                 return fieldValue != null &&
                         fieldValue != "" &&
                         (!field.type.isEnum || field.type.simpleName in translatableEnumsSet) &&
-                        field.name !in untranslatableFieldSet &&
-                        (clazz.componentType?.simpleName ?: clazz.simpleName) + "." + field.name !in untranslatableFieldSet
+                        !containsPotentiallyQualifiedName(untranslatableFieldSet, clazz, field)
             }
 
             /** Checks whether a field's content should be marked as "pre-translatable", meaning if it's not yet translated for a language,
@@ -566,8 +802,14 @@ object TranslationFileWriter {
              *  ONLY applies to collections of simple strings which can't contain {} placeholders.
              */
             private fun isFieldPreTranslatable(clazz: Class<*>, field: Field) =
-                field.name in preTranslatableFieldSet ||
-                (clazz.componentType?.simpleName ?: clazz.simpleName) + "." + field.name in preTranslatableFieldSet
+                containsPotentiallyQualifiedName(preTranslatableFieldSet, clazz, field)
+
+            /** Checks whether a field content should be treated as translatable as-is, or whether to potentially expect parameters */
+            private fun isFieldParameterized(clazz: Class<*>, field: Field) =
+                containsPotentiallyQualifiedName(fieldsToProcessParameters, clazz, field)
+
+            private fun containsPotentiallyQualifiedName(set: Set<String>, clazz: Class<*>, field: Field) =
+                field.name in set || (clazz.componentType?.simpleName ?: clazz.simpleName) + "." + field.name in set
 
             private fun getJavaClassByName(name: String): Class<Any>? {
                 return when (name) {
@@ -580,6 +822,7 @@ object TranslationFileWriter {
                     "GlobalUniques" -> GlobalUniques().javaClass
                     "UnitNameGroups" -> emptyArray<UnitNameGroup>().javaClass
                     "Nations" -> emptyArray<Nation>().javaClass
+                    "Personalities" -> emptyArray<Personality>().javaClass
                     "Policies" -> emptyArray<PolicyBranch>().javaClass
                     "Quests" -> emptyArray<Quest>().javaClass
                     "Religions" -> emptyArray<String>().javaClass

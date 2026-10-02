@@ -16,6 +16,7 @@ import com.unciv.ui.components.tilegroups.TileGroupMap
 import com.unciv.ui.components.tilegroups.TileSetStrings
 import com.unciv.ui.screens.basescreen.BaseScreen
 import com.unciv.ui.screens.basescreen.RecreateOnResize
+import com.unciv.view.TileMapView
 
 /**
  * Read-only full-screen heatmap that colors every tile by its dominant culture.
@@ -43,11 +44,10 @@ class CultureHeatmapScreen(
 
     private fun setupMap() {
         val tileSetStrings = TileSetStrings(viewingCiv.gameInfo.ruleset, game.settings)
-        for (tile in viewingCiv.gameInfo.tileMap.values) {
-            val tg = TileGroup(tile, tileSetStrings)
-            tg.isForceVisible = true
-            tileGroups.add(tg)
-        }
+        // A view without viewer treats every tile as explored and visible (same as the map editor)
+        val noViewTileMapView = TileMapView(viewingCiv.gameInfo.tileMap, null)
+        for (tile in viewingCiv.gameInfo.tileMap.values)
+            tileGroups.add(TileGroup(noViewTileMapView.getTile(tile), tileSetStrings))
         val tileGroupMap = TileGroupMap(scrollPane, tileGroups)
         scrollPane.actor = tileGroupMap
         scrollPane.setSize(stage.width, stage.height)
@@ -64,21 +64,21 @@ class CultureHeatmapScreen(
 
     private fun updateColors() {
         for (tg in tileGroups) {
-            val tile = tg.tile
-            tg.update(viewingCiv)
+            val tile = tg.tileView.tile
+            tg.update()
             tg.layerUnitFlag.isVisible = false
             tg.layerCityButton.isVisible = false
             tg.layerMisc.removeHexOutline()
             tg.layerMisc.hideTerrainOverlay()
 
             if (tile.isOcean) {
-                tg.layerTerrain.color.a = 0.4f
+                tg.layerTerrain.dim(0.4f)
                 continue
             }
 
             val map = tile.cultureMap
             if (map.isEmpty()) {
-                tg.layerTerrain.color.a = 0.5f
+                tg.layerTerrain.dim(0.5f)
                 continue
             }
 

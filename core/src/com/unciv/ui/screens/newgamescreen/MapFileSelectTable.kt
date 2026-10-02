@@ -18,6 +18,7 @@ import com.unciv.logic.map.TileMap
 import com.unciv.models.metadata.Player
 import com.unciv.models.ruleset.RulesetCache
 import com.unciv.models.ruleset.nation.Nation
+import com.unciv.models.ruleset.unique.GameContext
 import com.unciv.models.ruleset.unique.UniqueType
 import com.unciv.models.translations.tr
 import com.unciv.ui.components.SmallButtonStyle
@@ -255,12 +256,24 @@ class MapFileSelectTable(
         if (mapFileSelectBox.selection.isEmpty) return
         val selection = mapFileSelectBox.selected
 
-        val mapMods = selection.mapPreview.mapParameters.mods
+        val (baseRulesets, mapRequiredMods) = selection.mapPreview.mapParameters.mods
             .partition { RulesetCache[it]?.modOptions?.isBaseRuleset == true }
-        newGameScreen.gameSetupInfo.gameParameters.mods = LinkedHashSet(mapMods.second)
-        newGameScreen.gameSetupInfo.gameParameters.baseRuleset = mapMods.first.firstOrNull()
+        val mapBaseRuleset = baseRulesets.firstOrNull()
             ?: selection.mapPreview.mapParameters.baseRuleset
-        val success = newGameScreen.tryUpdateRuleset(updateUI = true)
+        
+        val gameParameters = newGameScreen.gameSetupInfo.gameParameters
+        // If the currently selected ruleset already satisfies the map's requirements, keep it
+        // instead of clobbering the user's mod selection (e.g. when switching between maps of the same base ruleset)
+        val currentRulesetIsCompatible = gameParameters.baseRuleset == mapBaseRuleset
+            && gameParameters.mods.containsAll(mapRequiredMods)
+
+        val success = if (currentRulesetIsCompatible) true
+        else {
+            gameParameters.mods = LinkedHashSet(mapRequiredMods)
+            gameParameters.baseRuleset = mapBaseRuleset
+            newGameScreen.tryUpdateRuleset(updateUI = true)
+        }
+        val rng = GameContext().stateBasedRandom("MapFileSelectTable.onFileSelectBoxChange", System.currentTimeMillis().toInt())
 
         if (success) {
             mapNations = selection.mapPreview.getDeclaredNations()
@@ -269,7 +282,7 @@ class MapFileSelectTable(
                 .toList()
             mapHumanPick = selection.mapPreview.getNationsForHumanPlayer()
                 .filter { newGameScreen.ruleset.nations[it]?.isMajorCiv == true }
-                .toList().randomOrNull()
+                .toList().randomOrNull(rng)
         } else {
             mapNations = emptyList()
             mapHumanPick = null

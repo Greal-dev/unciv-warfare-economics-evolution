@@ -21,6 +21,12 @@ enum class AlertType : IsPartOfGameInfoSerialization {
     
     DemandToStopSpyingOnUs,
     SpyingOnUsDespiteOurPromise,
+    
+    DemandToNotAttackUs,
+    AttackedUsDespitePromise,
+    
+    AcceptingDemand,
+    RejectingDemand,
 
     GoldenAge,
     DeclarationOfFriendship,
@@ -34,7 +40,9 @@ enum class AlertType : IsPartOfGameInfoSerialization {
     Event,
     VassalIndependenceRequest,
     TerritoryTradeOffer,
-    JoinCoalitionRequest
+    JoinCoalitionRequest,
+
+    Denounced
 }
 
 class PopupAlert : IsPartOfGameInfoSerialization {

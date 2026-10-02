@@ -43,7 +43,13 @@ class CrashScreen(val exception: Throwable) : BaseScreen() {
         "Could not get screen type: $e"
     }
 
-    val text = formatReport(exception.stringify())
+    /** Text shown on screen. Deliberately excludes the save game/mods data (see [fullText]) - rendering
+     *  that as part of a Label can itself OOM when we're already low on memory. */
+    val displayedText = formatReport(exception.stringify())
+
+    /** Full report including save game/mods data, only ever used for the Copy button and issue tracker. */
+    private val fullText by lazy { displayedText + tryGetSaveMods() + tryGetSaveGame() }
+
     var copied = false
         private set
 
@@ -97,6 +103,7 @@ class CrashScreen(val exception: Throwable) : BaseScreen() {
             **Version:** ${UncivGame.VERSION.toNiceString().prependIndentToOnlyNewLines(subIndent)}
             **Rulesets:** ${RulesetCache.keys.toString().prependIndentToOnlyNewLines(subIndent)}
             **Last Screen:** `$lastScreenType`
+            **A-star pathing enabled:** ${UncivGame.Current.settings.useAStarPathfinding}
 
             --------------------------------
 
@@ -109,7 +116,7 @@ class CrashScreen(val exception: Throwable) : BaseScreen() {
             ```
             ${message.prependIndentToOnlyNewLines(baseIndent)}
             ```
-            """.trimIndent() + tryGetSaveMods() + tryGetSaveGame()
+            """.trimIndent()
     }
 
     init {
@@ -151,7 +158,7 @@ class CrashScreen(val exception: Throwable) : BaseScreen() {
 
     /** @return Actor that displays a scrollable view of the error report text. */
     private fun makeErrorScroll(): Actor {
-        val errorLabel = Label(text, skin).apply {
+        val errorLabel = Label(displayedText, skin).apply {
             setFontSize(15)
         }
         val errorTable = Table()
@@ -174,7 +181,7 @@ class CrashScreen(val exception: Throwable) : BaseScreen() {
         val copyButton = IconTextButton("Copy", fontSize = Constants.headingFontSize)
             .onClick {
                 try {
-                    Gdx.app.clipboard.contents = text
+                    Gdx.app.clipboard.contents = fullText
                     copied = true
                     ToastPopup(
                         "Error report copied.",

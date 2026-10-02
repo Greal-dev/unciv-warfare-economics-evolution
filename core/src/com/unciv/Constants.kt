@@ -3,15 +3,21 @@ package com.unciv
 object Constants {
     const val settler = "Settler"
     const val eraSpecificUnit = "Era Starting Unit"
-    val all = setOf("All", "all")
+    const val lowercaseAll = "all"
+    const val uppercaseAll = "All"
+    val all = setOf(uppercaseAll, lowercaseAll)
     const val NO_ID = -1
 
     const val english = "English"
 
+    // Terrain
     const val impassable = "Impassable"
     const val ocean = "Ocean"
 
-    /** The "Coast" _terrain_ */
+    /** The "Coast" _terrain_
+     *  @see com.unciv.models.ruleset.tile.Terrain.isCoast
+     */
+    @Deprecated("By PR #15123, except for tests. Remove use in Terrain and this deprecation after a grace period.")
     const val coast = "Coast"
     /** The "Coastal" terrain _filter_ */
     const val coastal = "Coastal"
@@ -22,10 +28,10 @@ object Constants {
     const val mountain = "Mountain"
     const val hill = "Hill"
     const val plains = "Plains"
-    const val lakes = "Lakes"
     const val desert = "Desert"
     const val grassland = "Grassland"
-    const val tundra = "Tundra"
+    // TODO: GameStarter places "Tundra" startBias first. Can we make it generic by checking count by terrain?
+    const val tundra = "Tundra" 
     const val snow = "Snow"
 
     const val forest = "Forest"
@@ -42,21 +48,22 @@ object Constants {
 
     const val barbarianEncampment = "Barbarian encampment"
     const val cityCenter = "City center"
-    
+    const val allRoad = "All Road"
+
     // Treaties
     const val peaceTreaty = "Peace Treaty"
     const val researchAgreement = "Research Agreement"
     const val defensivePact = "Defensive Pact"
-    
+
     // Agreements
     const val openBorders = "Open Borders"
     const val vassalage = "Vassalage"
-    
+
     // Other trade items
     const val acceptEmbassy = "Accept Embassy"
     const val goldPerTurn = "Gold per turn"
     const val flatGold = "Gold"
-    
+
     /** Used as origin in StatMap or ResourceSupplyList, or the toggle button in DiplomacyOverviewTab */
     const val cityStates = "City-States"
     /** Used as origin in ResourceSupplyList */
@@ -91,6 +98,8 @@ object Constants {
 
     const val barbarians = "Barbarians"
     const val spectator = "Spectator"
+    const val humanPlayer = "Human player"
+    const val aiPlayer = "AI player"
 
     const val embarked = "Embarked"
     const val wounded = "Wounded"
@@ -125,6 +134,7 @@ object Constants {
 
     const val defaultFontSize = 18
     const val headingFontSize = 24
+    const val smallerHeadingFontSize = 20
 
     /** URL to the root of the Unciv repository, including trailing slash */
     // Note: Should the project move, this covers external links, but not comments e.g. mentioning issues

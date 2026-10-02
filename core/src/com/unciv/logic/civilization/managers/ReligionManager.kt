@@ -173,8 +173,9 @@ class ReligionManager : IsPartOfGameInfoSerialization {
             (200 + 100 * greatProphetsEarned * (greatProphetsEarned + 1) / 2f) *
             civInfo.gameInfo.speed.faithCostModifier
 
-        for (unique in civInfo.getMatchingUniques(UniqueType.FaithCostOfGreatProphetChange))
+        civInfo.forEachMatchingUnique(UniqueType.FaithCostOfGreatProphetChange) { unique ->
             faithCost *= unique.params[0].toPercent()
+        }
 
         return faithCost.toInt()
     }
@@ -199,10 +200,10 @@ class ReligionManager : IsPartOfGameInfoSerialization {
 
     private fun generateProphet() {
         val prophetUnit = getGreatProphetEquivalent() ?: return // No prophet units in this mod
+        val prophetCost = faithForNextGreatProphet()
+        val prophetSpawnChance = (5f + storedFaith - prophetCost) / 100f
 
-        val prophetSpawnChange = (5f + storedFaith - faithForNextGreatProphet()) / 100f
-
-        if (Random(civInfo.gameInfo.turns).nextFloat() < prophetSpawnChange) {
+        if (Random(civInfo.gameInfo.turns).nextFloat() < prophetSpawnChance) {
             val birthCity =
                 if (religionState <= ReligionState.Pantheon) civInfo.getCapital()
                 else {
@@ -211,8 +212,10 @@ class ReligionManager : IsPartOfGameInfoSerialization {
                     else civInfo.getCapital() // default to capital
                 }
             val prophet = civInfo.units.addUnit(prophetUnit, birthCity) ?: return
+            if (birthCity != null) // e.g. mosque of djenne bonuses
+                prophetUnit.addConstructionBonuses(prophet, birthCity.cityConstructions)
             prophet.religion = religion!!.name
-            storedFaith -= faithForNextGreatProphet()
+            storedFaith -= prophetCost
             civInfo.civConstructions.boughtItemsWithIncreasingPrice.add(prophetUnit.name, 1)
         }
     }
@@ -399,14 +402,15 @@ class ReligionManager : IsPartOfGameInfoSerialization {
         }
         chooseBeliefToAdd(BeliefType.Follower, 1)
 
-        for (unique in civInfo.getMatchingUniques(UniqueType.FreeExtraBeliefs)) {
-            if (unique.params[2] != action) continue
-            val type = BeliefType.valueOf(unique.params[1])
-            chooseBeliefToAdd(type, unique.params[0].toInt())
+        civInfo.forEachMatchingUnique(UniqueType.FreeExtraBeliefs) { unique ->
+            if (unique.params[2] == action) {
+                val type = BeliefType.valueOf(unique.params[1])
+                chooseBeliefToAdd(type, unique.params[0].toInt())
+            }
         }
-        for (unique in civInfo.getMatchingUniques(UniqueType.FreeExtraAnyBeliefs)) {
-            if (unique.params[1] != action) continue
-            chooseBeliefToAdd(BeliefType.Any, unique.params[0].toInt())
+        civInfo.forEachMatchingUnique(UniqueType.FreeExtraAnyBeliefs) { unique ->
+            if (unique.params[1] == action)
+                chooseBeliefToAdd(BeliefType.Any, unique.params[0].toInt())
         }
 
         for (type in freeBeliefsAsEnums())
@@ -431,27 +435,31 @@ class ReligionManager : IsPartOfGameInfoSerialization {
         when (religionState) {
             ReligionState.None -> {
                 religionState = ReligionState.Pantheon
-                for (unique in civInfo.getTriggeredUniques(UniqueType.TriggerUponFoundingPantheon))
+                civInfo.forEachTriggeredUnique(UniqueType.TriggerUponFoundingPantheon, ignoreCities = false) { unique ->
                     UniqueTriggerActivation.triggerUnique(unique, civInfo)
+                }
             }
             ReligionState.FoundingReligion -> {
                 religionState = ReligionState.Religion
-                for (unique in civInfo.getTriggeredUniques(UniqueType.TriggerUponFoundingReligion))
+                civInfo.forEachTriggeredUnique(UniqueType.TriggerUponFoundingReligion, ignoreCities = false) { unique ->
                     UniqueTriggerActivation.triggerUnique(unique, civInfo)
+                }
             }
             ReligionState.EnhancingReligion -> {
                 religionState = ReligionState.EnhancedReligion
-                for (unique in civInfo.getTriggeredUniques(UniqueType.TriggerUponEnhancingReligion))
+                civInfo.forEachTriggeredUnique(UniqueType.TriggerUponEnhancingReligion, ignoreCities = false) { unique ->
                     UniqueTriggerActivation.triggerUnique(unique, civInfo)
+                }
             }
             else -> {}
         }
 
-        for (unique in civInfo.getTriggeredUniques(UniqueType.TriggerUponAdoptingPolicyOrBelief))
+        civInfo.forEachTriggeredUnique(UniqueType.TriggerUponAdoptingPolicyOrBelief, ignoreCities = false) { unique ->
             for (belief in beliefs)
                 if (unique.getModifiers(UniqueType.TriggerUponAdoptingPolicyOrBelief).any { it.params[0] == belief.name})
                     UniqueTriggerActivation.triggerUnique(unique, civInfo,
                         triggerNotificationText = "due to adopting [${belief.name}]")
+        }
 
         for (belief in beliefs) {
             for (unique in belief.uniqueObjects) {

@@ -49,25 +49,35 @@ object MultiplayerHelpers {
         if (preview?.currentPlayer != null) {
             val currentTurnStartTime = Instant.ofEpochMilli(preview.currentTurnStartTime)
             val currentPlayer = preview.getCurrentPlayerCiv()
-            val playerDescriptor = if (currentPlayer.playerId == UncivGame.Current.settings.multiplayer.getUserId()) {
-                "You"
-            } else {
-                val friend = UncivGame.Current.settings.multiplayer.friendList
-                    .firstOrNull{ it.playerID == currentPlayer.playerId }
-                friend?.name ?: "Unknown"
-            }
-            val playerText = "{${preview.currentPlayer}}{ }({$playerDescriptor})"
+            val mpSettings = UncivGame.Current.settings.multiplayer
+            // "You", name of friend, or null
+            val playerDescriptor: String? = 
+                if (currentPlayer.playerId == mpSettings.getUserId()) "You" 
+                else mpSettings.friendList.firstOrNull { it.playerID == currentPlayer.playerId }?.name
+            
+            var playerText = "{${preview.currentPlayer}}"
+            if (playerDescriptor != null)
+                playerText += "{ }({$playerDescriptor})"
 
-            descriptionText.appendLine("Current Turn: [$playerText] since [${Duration.between(currentTurnStartTime, Instant.now()).formatShort()}] ago".tr())
-            descriptionText.appendLine("Time to play the turn: [${Duration.ofMinutes(currentPlayer.playerMinutesBeforeForceResign.toLong()).formatShort()}]")
+            val currentTurnTime = Duration.between(currentTurnStartTime, Instant.now())
+            var currentPlayerLine = "Current Turn: [$playerText] since [${currentTurnTime.formatShort()}] ago"
+            // Don't show average until we are sure all players have updated to compatible version
+            // This check can be removed after a few weeks/months
+            if (currentPlayer.turnsPlayedAsHuman > 0) {
+                val updatedTotalTurnTime = Duration.ofSeconds(currentPlayer.totalTurnTimeSeconds.toLong()) + currentTurnTime
+                val averageTurnTime = updatedTotalTurnTime.dividedBy(currentPlayer.turnsPlayedAsHuman + 1L) // +1 to include current turn and avoid div by 0
+                currentPlayerLine += " (average: [${averageTurnTime.formatShort()}])"
+            }
+            descriptionText.appendLine(currentPlayerLine.tr())
+            descriptionText.appendLine("Time to play the turn: [${Duration.ofMinutes(currentPlayer.playerMinutesBeforeForceResign.toLong()).formatShort()}]".tr())
 
             val playerCivName = preview.civilizations
                 .firstOrNull{ it.playerId == UncivGame.Current.settings.multiplayer.getUserId() }?.civName ?: "Unknown"
 
-            descriptionText.appendLine("{$playerCivName}, ${preview.difficulty.tr()}, ${Fonts.turn}${preview.turns}")
-            descriptionText.appendLine("{Base ruleset:} ${preview.gameParameters.baseRuleset}")
+            descriptionText.appendLine("{$playerCivName}, ${preview.difficulty.tr()}, ${Fonts.turn}${preview.turns}".tr())
+            descriptionText.appendLine("{Base ruleset:} ${preview.gameParameters.baseRuleset}".tr())
             if (preview.gameParameters.mods.isNotEmpty())
-                descriptionText.appendLine("{Mods:} " + preview.gameParameters.mods.joinToString())
+                descriptionText.appendLine(("{Mods:} " + preview.gameParameters.mods.joinToString()).tr())
 
         }
         return descriptionText.toString().tr()

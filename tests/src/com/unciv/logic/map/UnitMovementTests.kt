@@ -1,6 +1,5 @@
 ﻿@file:Suppress("UNUSED_VARIABLE")  // These are tests and the names serve readability
 
-//  Taken from https://github.com/TomGrill/gdx-testing
 package com.unciv.logic.map
 
 import com.unciv.Constants
@@ -10,6 +9,7 @@ import com.unciv.logic.civilization.diplomacy.DiplomacyManager
 import com.unciv.logic.civilization.diplomacy.DiplomaticStatus
 import com.unciv.logic.map.mapunit.MapUnit
 import com.unciv.logic.map.tile.Tile
+import com.unciv.models.UnitActionType
 import com.unciv.models.metadata.GameSettings.PathfindingAlgorithm
 import com.unciv.models.metadata.GameSettings.PathfindingAlgorithm.ClassicPathfinding
 import com.unciv.models.metadata.GameSettings.PathfindingAlgorithm.AStarPathfinding
@@ -17,8 +17,9 @@ import com.unciv.models.ruleset.nation.Nation
 import com.unciv.models.ruleset.unique.UniqueType
 import com.unciv.models.ruleset.unit.BaseUnit
 import com.unciv.models.ruleset.unit.UnitType
-import com.unciv.testing.GdxTestRunnerFactory
+import com.unciv.testing.TestRunnerFactory
 import com.unciv.testing.TestGame
+import com.unciv.ui.components.UnitMovementMemoryType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -30,11 +31,15 @@ import org.junit.runners.Parameterized.Parameters
 import org.junit.runners.Parameterized.UseParametersRunnerFactory
 
 @RunWith(Parameterized::class)
-@UseParametersRunnerFactory(GdxTestRunnerFactory::class)
-class UnitMovementTests(
-    // parameters come from the Compantion#parameters method
-    private val pathfindingAlgorithm: PathfindingAlgorithm,
-) {
+@UseParametersRunnerFactory(TestRunnerFactory::class)
+class UnitMovementTests(private val pathfindingAlgorithm: PathfindingAlgorithm) {
+    companion object {
+        @Suppress("unused")
+        @Parameters
+        @JvmStatic
+        fun parameters() = TestRunnerFactory.Parameters.pathfinding
+    }
+
     private lateinit var tile: Tile
     private lateinit var civInfo: Civilization
     private var testGame = TestGame()
@@ -135,6 +140,23 @@ class UnitMovementTests(
             assertTrue("$type must not enter Wonder tile",
                 unit.movement.canPassThrough(tile) == type.hasUnique(UniqueType.CanPassImpassable))
         }
+    }
+
+    @Test
+    fun germanEncampmentRecruitmentUsesFullHealth() {
+        val germany = testGame.addCiv(
+            "When conquering an encampment, earn [25] Gold and recruit a Barbarian unit <with [100]% chance>"
+        )
+        testGame.addBarbarianCiv()
+        testGame.gameInfo.barbarians.setTransients(testGame.gameInfo)
+        val campTile = testGame.getTile(0, 0)
+        testGame.gameInfo.barbarians.createNewCamp(campTile)
+        val unit = testGame.addUnit("Warrior", germany, campTile.neighbors.first())
+
+        unit.movement.moveToTile(campTile)
+
+        val recruitedUnit = germany.units.getCivUnits().single { it != unit }
+        assertEquals(100, recruitedUnit.health)
     }
 
     @Test
@@ -315,6 +337,46 @@ class UnitMovementTests(
         assertTrue("Payload must be teleported to the same tile",
             unit.currentTile == payload.currentTile)
     }
+
+    @Test
+    fun paradroppingTransportKeepsPayload() {
+        val origin = testGame.tileMap[0,0]
+        val destination = testGame.tileMap[1,0]
+        origin.baseTerrain = Constants.coast
+        origin.setTransients()
+        destination.baseTerrain = Constants.coast
+        destination.setTransients()
+
+        val transportBaseUnit = testGame.createBaseUnit(
+            "Aircraft Carrier",
+            "Can carry [2] [Aircraft] units",
+            "May Paradrop to [Water] tiles up to [2] tiles away"
+        ).apply {
+            movement = 2
+            strength = 1
+        }
+        val transport = testGame.addUnit(transportBaseUnit.name, civInfo, origin)
+        // Freed from the carrier first, so the two real payloads can fill it to capacity below -
+        // a full carrier is exactly the case that used to lose its payloads.
+        val untransportedAirUnit = testGame.addUnit("Fighter", civInfo, origin)
+        untransportedAirUnit.isTransported = false
+        val payload = testGame.addUnit("Fighter", civInfo, origin)
+        val secondPayload = testGame.addUnit("Fighter", civInfo, origin)
+
+        transport.action = UnitActionType.Paradrop.value
+        transport.movement.moveToTile(destination)
+
+        assertEquals(destination, transport.currentTile)
+        assertEquals(destination, payload.currentTile)
+        assertEquals(destination, secondPayload.currentTile)
+        assertTrue(payload.isTransported)
+        assertTrue(secondPayload.isTransported)
+        assertEquals(UnitMovementMemoryType.UnitTeleported, transport.mostRecentMoveType)
+        assertEquals(UnitMovementMemoryType.UnitTeleported, payload.mostRecentMoveType)
+        assertEquals(UnitMovementMemoryType.UnitTeleported, secondPayload.mostRecentMoveType)
+        assertEquals(origin, untransportedAirUnit.currentTile)
+        assertFalse(untransportedAirUnit.isTransported)
+    }
     
     @Test
     fun twoEscortsCanSwap() {
@@ -352,8 +414,18 @@ class UnitMovementTests(
         assertEquals(warrior2, settler2.getOtherEscortUnit())
         settler1.currentMovement = 0f
 
+        assertFalse(warrior1.movement.canReachInCurrentTurn(testGame.tileMap[2,2]))
+        assertTrue(warrior2.movement.canReachInCurrentTurn(testGame.tileMap[1,1]))
+        assertFalse(settler1.movement.canReachInCurrentTurn(testGame.tileMap[2,2]))
+        assertTrue(settler2.movement.canReachInCurrentTurn(testGame.tileMap[1,1]))
+        assertTrue(warrior1.movement.canMoveTo(testGame.tileMap[2,2], allowSwap = true))
+        assertTrue(warrior2.movement.canMoveTo(testGame.tileMap[1,1], allowSwap = true))
+        assertTrue(settler1.movement.canMoveTo(testGame.tileMap[2,2], allowSwap = true))
+        assertTrue(settler2.movement.canMoveTo(testGame.tileMap[1,1], allowSwap = true))
         assertFalse(warrior1.movement.canUnitSwapTo(testGame.tileMap[2,2]))
         assertFalse(warrior2.movement.canUnitSwapTo(testGame.tileMap[1,1]))
+        assertFalse(settler1.movement.canUnitSwapTo(testGame.tileMap[2,2]))
+        assertFalse(settler2.movement.canUnitSwapTo(testGame.tileMap[1,1]))
 
         warrior1.movement.swapMoveToTile(testGame.tileMap[2,2])
 
@@ -363,18 +435,5 @@ class UnitMovementTests(
         assertEquals(testGame.tileMap[2,2], settler2.currentTile)
         assertEquals(warrior1, settler2.getOtherEscortUnit())
         assertEquals(warrior2, settler1.getOtherEscortUnit())
-    }
-
-    companion object {
-        @Suppress("unused")
-        @Parameters
-        @JvmStatic
-        fun parameters(): Collection<Array<Any?>?> {
-            return listOf( 
-                /* First execute the test with these parametrers */
-                arrayOf(ClassicPathfinding),
-                /* and then execute the test with these parametrers */
-                arrayOf(AStarPathfinding))
-        }
     }
 }

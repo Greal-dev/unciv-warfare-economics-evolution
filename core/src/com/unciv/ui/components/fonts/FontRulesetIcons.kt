@@ -39,7 +39,7 @@ object FontRulesetIcons {
         nextUnusedCharacterNumber = UNUSED_CHARACTER_CODES_START
 
         fun addChar(objectName: String, objectActor: Actor) {
-            if (nextUnusedCharacterNumber > UNUSED_CHARACTER_CODES_END) return
+            if (nextUnusedCharacterNumber > UNUSED_CHARACTER_CODES_END || objectName.isEmpty()) return
             val char = Char(nextUnusedCharacterNumber)
             nextUnusedCharacterNumber++
             rulesetObjectNameToChar[objectName] = char
@@ -93,12 +93,11 @@ object FontRulesetIcons {
                 addChar(terrain.name, tileGroup)
             }
         }
-        
     }
 
     private val frameBuffer by lazy {
         // Size here is way too big, but it's hard to know in advance how big it needs to be.
-        // Gdx world coords, not pixels.
+        // Icons are measured in Gdx world coords, not pixels, but FrameBuffer is dimensioned in pixels.
         FrameBuffer(Pixmap.Format.RGBA8888, Gdx.graphics.width, Gdx.graphics.height, false)
     }
     private val spriteBatch by lazy { SpriteBatch() }

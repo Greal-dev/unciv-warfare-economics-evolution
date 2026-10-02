@@ -1,6 +1,7 @@
 package com.unciv.logic.map.mapgenerator
 
 import com.unciv.logic.map.MapParameters
+import com.unciv.logic.map.MapType
 import com.unciv.logic.map.TileMap
 import com.unciv.logic.map.tile.Tile
 import com.unciv.models.ruleset.Ruleset
@@ -22,7 +23,7 @@ internal class MapElevationGenerator(
         private const val lowering = "~Lowering~"
     }
 
-    private val flats = terrains.filter {!it.terrain.impassable && it.terrain.type == TerrainType.Land && !it.rareFeature && !it.terrain.hasUnique(UniqueType.RoughTerrain)  }
+    private val flats = terrains.filter {!it.terrain.impassable && it.terrain.type == TerrainType.Land && !it.rareFeature && !it.isRough  }
     private val hills = terrains.filter {(it.terrain.type == TerrainType.Land || it.terrain.type == TerrainType.TerrainFeature) && it.occursInGroups && !it.rareFeature}
     private val mountains = terrains.filter {(it.terrain.type == TerrainType.Land || it.terrain.type == TerrainType.TerrainFeature) && it.occursInChains && !it.rareFeature}
 
@@ -36,7 +37,13 @@ internal class MapElevationGenerator(
         }
 
         val elevationSeed = randomness.RNG.nextInt().toDouble()
-        val exponent = 1.0 - tileMap.mapParameters.elevationExponent.toDouble()
+        
+        // some map types are more mountainous than others
+        val mapSpecificElevationOffset = when (tileMap.mapParameters.type) {
+            MapType.boreal -> +0.03
+            else -> 0.0
+        }
+        val exponent = 1.0 - tileMap.mapParameters.elevationExponent.toDouble() - mapSpecificElevationOffset
         fun Double.powSigned(exponent: Double) = abs(this).pow(exponent) * sign(this)
 
         tileMap.setTransients(ruleset)
@@ -198,12 +205,12 @@ internal class MapElevationGenerator(
     }
 
     private fun applyTerrain(tile: Tile, terrains: List<MapGenerator.TerrainOccursRange>) {
-        val desiredTerrain = (terrains.filter {it.matches(tile) }.ifEmpty { terrains }).random(randomness.RNG)
+        val desiredTerrain = (terrains.filter {it.matchesTempAndTerrain(tile) }.ifEmpty { terrains }).random(randomness.RNG)
         tile.dropElevatedFeatures()
         if (desiredTerrain.terrain.type == TerrainType.Land) {
             tile.baseTerrain = desiredTerrain.name
         } else { // must be TerrainType.TerrainFeature
-            val baseTerrains = flats.filter { desiredTerrain.terrain.occursOn.contains(it.name) && it.matches(tile) }
+            val baseTerrains = flats.filter { desiredTerrain.terrain.occursOn.contains(it.name) && it.matchesHumidityAndTemp(tile) }
                 .ifEmpty { flats.filter { desiredTerrain.terrain.occursOn.contains(it.name) } }
             if (baseTerrains.isEmpty()) {
                 Log.debug("Ruleset seems to contain no flat terrain that ${desiredTerrain.name} can apply to. Failing feature.")

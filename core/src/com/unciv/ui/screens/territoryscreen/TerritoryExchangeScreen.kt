@@ -22,6 +22,7 @@ import com.unciv.ui.popups.ConfirmPopup
 import com.unciv.ui.popups.ToastPopup
 import com.unciv.ui.screens.basescreen.BaseScreen
 import com.unciv.ui.screens.basescreen.RecreateOnResize
+import com.unciv.view.TileMapView
 
 enum class TerritoryExchangeMode {
     /** Suzerain forces an exchange on a vassal — applied directly. */
@@ -93,11 +94,10 @@ class TerritoryExchangeScreen(
             for (n in tile.neighbors)
                 all.add(n)
 
-        for (tile in all) {
-            val tg = TileGroup(tile, tileSetStrings)
-            tg.isForceVisible = true
-            tileGroups.add(tg)
-        }
+        // A view without viewer treats every tile as explored and visible (same as the map editor)
+        val noViewTileMapView = TileMapView(playerCiv.gameInfo.tileMap, null)
+        for (tile in all)
+            tileGroups.add(TileGroup(noViewTileMapView.getTile(tile), tileSetStrings))
 
         val tileGroupMap = TileGroupMap(scrollPane, tileGroups)
         scrollPane.actor = tileGroupMap
@@ -112,7 +112,7 @@ class TerritoryExchangeScreen(
         // so empty TileGroups ARE hittable if touchable=enabled (the default).
         // Attach click handlers on each TileGroup.
         for (tg in tileGroups) {
-            tg.onClick { handleTileClick(tg.tile) }
+            tg.onClick { handleTileClick(tg.tileView.tile) }
         }
 
         scrollPane.layout()
@@ -154,10 +154,10 @@ class TerritoryExchangeScreen(
         val otherColor = Color(otherCiv.nation.getOuterColor())
 
         for (tg in tileGroups) {
-            val tile = tg.tile
+            val tile = tg.tileView.tile
             val pos = tile.position
 
-            tg.update(playerCiv)
+            tg.update()
             tg.layerUnitFlag.isVisible = false
             tg.layerCityButton.isVisible = false
             tg.layerMisc.removeHexOutline()
@@ -179,7 +179,7 @@ class TerritoryExchangeScreen(
                     tg.layerMisc.overlayTerrain(playerColor, 0.3f)
                 }
                 else -> {
-                    tg.layerTerrain.color.a = DIM_ALPHA
+                    tg.layerTerrain.dim(DIM_ALPHA)
                 }
             }
         }

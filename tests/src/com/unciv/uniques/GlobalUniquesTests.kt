@@ -6,7 +6,7 @@ import com.unciv.logic.map.HexCoord
 import com.unciv.logic.map.tile.RoadStatus
 import com.unciv.models.ruleset.BeliefType
 import com.unciv.models.stats.Stats
-import com.unciv.testing.GdxTestRunner
+import com.unciv.testing.BaseTestRunner
 import com.unciv.testing.TestGame
 import org.junit.Assert
 import org.junit.Before
@@ -14,7 +14,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import kotlin.math.abs
 
-@RunWith(GdxTestRunner::class)
+@RunWith(BaseTestRunner::class)
 class GlobalUniquesTests {
 
     private lateinit var game: TestGame
@@ -157,7 +157,7 @@ class GlobalUniquesTests {
 
         val tile2 = game.setTileTerrain(HexCoord(0,1), Constants.grassland)
         game.addTileToCity(city, tile2)
-        Assert.assertTrue(tile2.stats.getTileStats(city, civInfo).gold == 4f)
+        Assert.assertEquals(4f, tile2.stats.getTileStats(city, civInfo).gold, 0.005f)
 
         val tile3 = game.setTileTerrainAndFeatures(HexCoord(0,2), Constants.grassland, Constants.forest)
         game.addTileToCity(city, tile3)

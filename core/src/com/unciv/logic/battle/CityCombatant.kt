@@ -7,11 +7,11 @@ import com.unciv.logic.civilization.Civilization
 import com.unciv.logic.map.tile.Tile
 import com.unciv.models.UncivSound
 import com.unciv.models.ruleset.unique.GameContext
+import com.unciv.models.ruleset.unique.Unique
 import com.unciv.models.ruleset.unique.UniqueType
 import com.unciv.models.ruleset.unit.UnitType
 import com.unciv.ui.components.extensions.toPercent
 import yairm210.purity.annotations.Readonly
-import kotlin.math.pow
 import kotlin.math.roundToInt
 
 /**
@@ -34,8 +34,8 @@ class CityCombatant(val city: City) : ICombatant {
     override fun getTile(): Tile = city.getCenterTile()
     override fun getName(): String = city.name
     @Readonly override fun isDefeated(): Boolean = garrison == null || garrison!!.health <= 0
-    override fun isInvisible(to: Civilization): Boolean = false
-    override fun canAttack(): Boolean = false   // cities never bombard
+    override fun isVisibleTo(to: Civilization): Boolean = true
+    override fun canAttack(): Boolean = false   // TW v2: cities never bombard, the garrison fights
     override fun matchesFilter(filter: String, multiFilter: Boolean) =
         if (multiFilter) MultiFilter.multiFilter(filter, { it == "City" || it in Constants.all || city.matchesFilter(it, multiFilter = false) })
         else filter == "City" || filter in Constants.all || city.matchesFilter(filter, multiFilter = false)
@@ -72,20 +72,33 @@ class CityCombatant(val city: City) : ICombatant {
         } else 1f  // undefended city — barely standing
 
         // Terrain still matters (hill, fort, etc.)
-        for (unique in cityTile.allTerrains.flatMap { it.getMatchingUniques(UniqueType.GrantsCityStrength) })
-            strength += unique.params[0].toInt()
+        for (terrain in cityTile.allTerrains)
+            terrain.forEachMatchingUnique(UniqueType.GrantsCityStrength, GameContext.EmptyState) { unique ->
+                strength += unique.params[0].toInt()
+            }
 
         // Walls / defensive buildings still grant their bonus
         var buildingsStrength = city.getStrength()
         val gameContext = GameContext(getCivInfo(), city, ourCombatant = this, theirCombatant = theirCombatant, combatAction = combatAction)
-        for (unique in getCivInfo().getMatchingUniques(UniqueType.BetterDefensiveBuildings, gameContext))
+        getCivInfo().forEachMatchingUnique(UniqueType.BetterDefensiveBuildings, gameContext) { unique ->
             buildingsStrength *= unique.params[0].toPercent()
+        }
         strength += buildingsStrength
 
-        val extraStrength = city.getMatchingUniques(UniqueType.StrengthAmount, gameContext).sumOf { it.params[0].toInt() }
+        var extraStrength = 0
+        city.forEachMatchingUnique(UniqueType.StrengthAmount, gameContext) { extraStrength += it.params[0].toInt() }
         strength += extraStrength
 
         return strength.roundToInt().coerceAtLeast(1)
+    }
+
+    @Readonly
+    override fun getTriggeredUniques(
+        trigger: UniqueType,
+        gameContext: GameContext,
+        triggerFilter: (Unique) -> Boolean
+    ): Sequence<Unique> {
+        return city.getTriggeredUniques(trigger, gameContext, triggerFilter)
     }
 
     override fun toString() = city.name // for debug

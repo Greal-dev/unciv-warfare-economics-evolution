@@ -15,6 +15,7 @@ import com.unciv.ui.components.extensions.toLabel
 import com.unciv.ui.components.input.onClick
 import com.unciv.ui.images.ImageGetter
 import com.unciv.ui.screens.basescreen.BaseScreen
+import com.unciv.view.CivView
 
 /**
  * TW v2 — Resource Prospecting tab.
@@ -24,7 +25,7 @@ import com.unciv.ui.screens.basescreen.BaseScreen
  * ownership and improvement status.
  */
 class ProspectOverviewTab(
-    viewingPlayer: Civilization,
+    viewingPlayer: CivView,
     overviewScreen: EmpireOverviewScreen,
     persistedData: EmpireOverviewTabPersistableData? = null
 ) : EmpireOverviewTab(viewingPlayer, overviewScreen) {
@@ -36,6 +37,9 @@ class ProspectOverviewTab(
     }
     override val persistableData = (persistedData as? ProspectTabPersistableData) ?: ProspectTabPersistableData()
 
+    /** TW: this fork-only tab works on the logic objects, not on views */
+    private val tabCiv: Civilization = viewingPlayer.getCiv()
+
     private companion object {
         const val iconSize = 40f
         const val selectedIconSize = 48f
@@ -45,7 +49,7 @@ class ProspectOverviewTab(
     private val resourceList: List<TileResource> = gameInfo.ruleset.tileResources.values
         .filter {
             (it.resourceType == ResourceType.Strategic || it.resourceType == ResourceType.Luxury) &&
-                viewingPlayer.canSeeResource(it)
+                tabCiv.canSeeResource(it)
         }
         .sortedWith(compareBy({ it.resourceType }, { it.name }))
 
@@ -116,19 +120,19 @@ class ProspectOverviewTab(
         val findings = mutableListOf<Finding>()
         for (tile in tileMap.values) {
             if (tile.resource != resourceName) continue
-            if (!tile.isExplored(viewingPlayer)) continue
+            if (!tile.isExplored(tabCiv)) continue
             val owner = tile.getOwner()
             val category: Category
             val label: String
             when {
-                owner == viewingPlayer -> {
-                    val improved = tile.providesResources(viewingPlayer)
+                owner == tabCiv -> {
+                    val improved = tile.providesResources(tabCiv)
                     category = if (improved) Category.OwnImproved else Category.OwnUnimproved
-                    label = tile.getCity()?.name ?: viewingPlayer.civName
+                    label = tile.getCity()?.name ?: tabCiv.civName
                 }
                 owner == null -> {
                     category = Category.Unowned
-                    val nearestCity = viewingPlayer.cities.minByOrNull {
+                    val nearestCity = tabCiv.cities.minByOrNull {
                         it.getCenterTile().aerialDistanceTo(tile)
                     }
                     label = if (nearestCity != null)
@@ -138,8 +142,8 @@ class ProspectOverviewTab(
                 owner.isCityState -> {
                     category = Category.CityState
                     val cs = owner.civName
-                    val rel = if (owner.allyCiv == viewingPlayer) " — ally"
-                        else if (viewingPlayer.knows(owner)) ""
+                    val rel = if (owner.allyCiv == tabCiv) " — ally"
+                        else if (tabCiv.knows(owner)) ""
                         else ""
                     label = "$cs$rel"
                 }

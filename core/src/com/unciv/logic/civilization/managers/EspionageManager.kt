@@ -2,10 +2,12 @@ package com.unciv.logic.civilization.managers
 
 import com.unciv.logic.IsPartOfGameInfoSerialization
 import com.unciv.logic.city.City
+import com.unciv.logic.city.managers.CityEspionageManager
 import com.unciv.logic.civilization.Civilization
 import com.unciv.logic.map.tile.Tile
 import com.unciv.models.Spy
 import com.unciv.models.ruleset.unique.UniqueType
+import com.unciv.ui.screens.devconsole.ConsoleCivCommands
 import yairm210.purity.annotations.Readonly
 
 
@@ -45,9 +47,10 @@ class EspionageManager : IsPartOfGameInfoSerialization {
 
     @Readonly
     fun getSpyName(): String {
+        val rng = civInfo.state.stateBasedRandom("EspianageManager.getSpyName")
         val usedSpyNames = spyList.map { it.name }.toHashSet()
         val validSpyNames = civInfo.nation.spyNames.filter { it !in usedSpyNames }
-        return validSpyNames.randomOrNull()
+        return validSpyNames.randomOrNull(rng)
             ?: "Spy ${spyList.size + 1}" // +1 as non-programmers count from 1
     }
 
@@ -105,5 +108,17 @@ class EspionageManager : IsPartOfGameInfoSerialization {
      */
     fun removeAllSpies() {
         spyList.forEach { it.moveTo(null) }
+    }
+
+    /**
+     * Recalls all spies stationed in any of [otherCiv]'s cities to the hideout.
+     *
+     * Called when [otherCiv] is destroyed via console [`civ remove`][ConsoleCivCommands].
+     * Not using [CityEspionageManager.removeAllPresentSpies], so no notifications.
+     */
+    internal fun recallAllSpiesFrom(otherCiv: Civilization) {
+        val toRecall = spyList.filter { it.getCityOrNull() in otherCiv.cities }
+        for (spy in toRecall)
+            spy.moveTo(null)
     }
 }

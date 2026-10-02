@@ -10,7 +10,6 @@ import com.unciv.logic.map.tile.Tile
 import com.unciv.models.UnitActionType
 import com.unciv.models.ruleset.Building
 import com.unciv.models.ruleset.tile.TerrainType
-import com.unciv.models.ruleset.unique.LocalUniqueCache
 import com.unciv.models.ruleset.unique.UniqueType
 import com.unciv.models.stats.Stat
 import com.unciv.ui.screens.worldscreen.unit.actions.UnitActions
@@ -73,6 +72,19 @@ object SpecificUnitAutomation {
     }
 
     fun automateSettlerActions(unit: MapUnit, dangerousTiles: HashSet<Tile>) {
+        // City-state starts are predetermined by map gen / editor — trust that tile by default.
+        // Mods can opt out via CityStatesSearchForFirstCitySite.
+        if (unit.civ.isCityState && unit.civ.cities.isEmpty()
+            && !unit.civ.gameInfo.ruleset.modOptions.hasUnique(UniqueType.CityStatesSearchForFirstCitySite)
+        ) {
+            val foundHere = UnitActionsFromUniques.getFoundCityAction(unit, unit.getTile())
+            if (foundHere?.action != null && unit.hasMovement()) {
+                foundHere.action.invoke()
+                return
+            }
+            // Cannot found here (blocked / invalid) — fall through to normal search.
+        }
+
         // If we don't have any cities, we are probably at the start of the game with only one settler
         // If we are at the start of the game lets spend a maximum of 3 turns to settle our first city
         // As our turns progress lets shrink the area that we look at to make sure that we stay on target
@@ -145,9 +157,13 @@ object SpecificUnitAutomation {
 
             /** @return the number of tiles 4 (un-modded) out from this city that could hold a city, ie how lonely this city is */
             @Readonly
-            fun getFrontierScore(city: City) = city.getCenterTile()
-                .getTilesAtDistance(city.civ.gameInfo.ruleset.modOptions.constants.minimalCityDistance + 1)
-                .count { it.canBeSettled(unit.civ) }
+            fun getFrontierScore(city: City): Int {
+                var frontierScore = 0
+                city.getCenterTile().forEachTileAtDistance(city.civ.gameInfo.ruleset.modOptions.constants.minimalCityDistance + 1) {
+                    if (it.canBeSettled(unit.civ)) frontierScore++
+                }
+                return frontierScore
+            }
 
             val frontierCity = unit.civ.cities.maxByOrNull { getFrontierScore(it) }
             if (frontierCity != null && getFrontierScore(frontierCity) > 0  && unit.movement.canReach(frontierCity.getCenterTile()))
@@ -193,13 +209,12 @@ object SpecificUnitAutomation {
             .map { Automation.rankStatsValue(it, unit.civ) }
             .average()
 
-        val localUniqueCache = LocalUniqueCache()
         for (city in citiesByStatBoost) {
             val applicableTiles = city.getWorkableTiles().filter {
                 it.isLand && (it.tileResource?.isImprovedBy(improvementName) != false) && !it.isCityCenter()
                     && (unit.currentTile == it || unit.movement.canMoveTo(it))
                     // okay if we replace regular improvements by great improvements, but not the other way around
-                    && (it.improvement == null || !it.getTileImprovement()!!.hasUnique(UniqueType.GreatImprovement))
+                    && (it.tileImprovement == null || !it.tileImprovement!!.hasUnique(UniqueType.GreatImprovement))
                     && it.improvementFunctions.canBuildImprovement(improvement, unit.cache.state)
                     && (!improvement.hasUnique(UniqueType.GreatImprovement) || Automation.rankStatsValue(it.getBaseTerrain().cloneStats(), unit.civ) > averageTerrainStatsValue)
             }
@@ -229,7 +244,6 @@ object SpecificUnitAutomation {
                 Automation.rankTile(
                     it,
                     unit.civ,
-                    localUniqueCache
                 )
             }
                 .firstOrNull { unit.movement.canReach(it) }

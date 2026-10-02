@@ -1,3 +1,717 @@
+## 4.22.1
+
+Fixed crash on "ID from clipboard" when clipboard not set
+
+Scrollable events show scrollbars
+
+Allow modders to specify modOptions.constants.maxRiverLength as 0 to avoid river generation entirely
+
+Tweaked auto map size - By O-spin
+
+Performance improvements - By Ambeco
+
+Add map generator settings clipboard actions - By LouisDeconinck
+
+## 4.22.0
+
+Invisible units no longer invisible to their own civ
+
+Remember last civilopedia position
+
+New game screen: Start fresh if the latest game start is erroring
+
+When selecting custom maps, don't overwrite the ruleset if the current mods are a superset of the map's required mods
+
+By unciv-loof:
+- Automation setting for specialist control in new cities 
+- Set default max coast extension to 3 instead of 2 
+
+By JN0V:
+- Add countable "Known [civFilter] Civilizations" 
+- Victories can carry uniques, and decide who may achieve them 
+- Add victory milestone "Have at least [amount] [countable]" 
+- Fix possible crash when scrolling to the selected construction queue entry 
+
+By LouisDeconinck:
+- Fix terrain changes from gifted improvements 
+- Fix health of units recruited from encampments 
+
+fix: prevent owned roads from being charged as neutral roads - By mvanhorn
+
+fix mod translation not enabled in restored new game screen - By finalpatch
+
+AStar correctly paths around allies - By Ambeco
+
+## 4.21.19
+
+Prevent mod archives from overwriting saves and settings - By Angais
+
+Improve desktop font rendering with mipmaps and preserve glyph contrast - By finalpatch (new contributor!)
+
+When changing rulesets, clamp number of city states available to match new ruleset
+
+Show stat icons in civilopedia when displaying stats
+
+Fix altas generation fuzziness errors
+
+Hide unit table "summary" for civs with no units (e.g. Spectator)
+
+Unify "extra ranged attack" logic - extra attacks no longer trigger regular attack effects (XP, on-kill uniques, on-damage uniques) separately from existing triggers
+
+Solved crash when city screen update happens parallel to screen change
+
+## 4.21.18
+
+Avoid ANRs from multiple sources
+
+Avoid game load crashes for unit/tile neighbor adjacency conditionals
+
+Adds auto map size - By O-spin
+
+By Angais: 
+- Apply warmonger penalties to alliance motivation 
+- Apply city filters to spy effectiveness 
+
+By varchasgopalaswamy (new contributor!):
+- Fix bug where unplacable great people will disappear 
+- Fix movement history perspective 
+
+By SomeTroglodyte:
+- Font fallback for missing glyphs 
+- Translation generation preserves existing data for mods, can backup 
+
+## 4.21.17
+
+Decrease initial startup time
+
+By Angais:
+- AI: Keep inquisitor conversion targets in owned cities 
+- Retain lost data when saving games 
+- Fixed trade evaluation error  
+
+By varchasgopalaswamy:
+- Fixed tile info update bug when changing perspective in spectator 
+- fixed city selection bug bug 
+
+## 4.21.16
+
+Fixed visual flash when entering a city
+
+Don't allow removing features for improvements, if it requires an unresearched tech
+
+Decrease time-to-first-pixels for better user experience
+
+AI doesn't accept trades to declare war against multiple civs
+
+Better multiplayer UUID handling - By dangdinhbaohoang12
+
+Correct numeric localization and stat icon suppression - By mvanhorn
+
+Increase luxury diversity - By O-spin
+
+## 4.21.15
+
+Avoid ANRs in multiple places
+
+Performance improvements
+
+Remove initial Android screen orientation restriction for "user landscape" - now takes whatever orientation is set for the device
+
+Air unit list visible on carriers
+
+Resolved map bounds restrictions on spectator-as-civ by removing restrictions entirely
+
+UI doesn't crash if construction list changed while we try and select a queue entry that no longer exists
+
+Better use of multiple slot types on carriers - By SomeTroglodyte
+
+## 4.21.14
+
+Fixed minimap problems when spectating-as-civ
+
+Avoid future ANRs from screen-switching
+
+reject ruleset objects that replace themselves - By mvanhorn
+
+Record client version of latest turn submitted by each civ in Multiplayer - By unciv-loof
+
+By SomeTroglodyte:
+- Fix "Connect road" with A-Star pathing enabled
+- Allow assigning "key" mappings to extra mouse buttons
+- More screens support the "F1" binding to Civilopedia
+- Prevent double terrain damage from healing
+- Fix equalizeColumns for empty lower tables
+
+## 4.21.13
+
+Massive Application Not Responding cleanup for Android
+
+Minor CPU performance improvements
+
+Spectator-as-civ sees "units moving to tiles" only for the civ's units
+
+AI sets production focus for wonders and spaceship parts - By ssamt
+
+AStar movement fix - By Ambeco
+
+## 4.21.12
+
+Reduce RAM when saving/loading to/from files
+
+Fix rare crashes when handling events while screens are being changed
+
+Fix crash on Options re-open with force-close, e.g. toggling "Enable out-of-game turn notifications" - By SomeTroglodyte 
+
+AI does not see unexplored tiles for tile value when assessing settler locations - By ssamt 
+
+Clarify distance-based unit cycle option - By mvanhorn
+
+Population in cities countable - By PLynx01
+
+Modding: Downgrade "same name for multiple entries" to "OK", lowest level of warning, since most cases are benign
+
+## 4.21.11
+
+Fixed repair functions for when there is only a pillaged road
+
+Avoid ANRs when opening civilopedia
+
+By SomeTroglodyte:
+- Fix Future Tech not counting for Contest Technologies quest 
+- Fix ImprovementPicker not offering Improvements needing a removal 
+
+Reduce autosave memory spikes - By mvanhorn
+
+AI: Better picking of next unit to construct - By WhoIsJohannes
+
+Crude mod author block list - By unciv-loof
+
+Fixed crash when activating 2 cityscreen arrow buttons at the same time
+
+## 4.21.10
+
+By unciv-loof:
+- Squash notifications when many units can be promoted 
+- Preserve scroll position of civ list in victory screen after updating selection 
+
+Disable legion being able to repair - By O-spin
+
+By SomeTroglodyte:
+- Fix improvement picker hiding researchable improvements and failing to hide others 
+- Try to create and index the save destination *extra* early for cheap Android devices
+
+Use live data for latest turn in charts - By ssamt
+
+## 4.21.9
+
+Fix: Defeated singleplayer players again have full map visibility
+
+Fixed crash ewhen clicking on civ relationships lines
+
+Prevent natural-wonder coast conversion artifacts - By mvanhorn
+
+By ssamt:
+- hide spectator in global politics
+- AI avoid selling spaceship parts for resource
+
+Fix WLTKD demand rewrite mid-celebration - By Fanfblrik
+
+Mention which civ took our CS alliance in notification - By unciv-loof
+
+Puppet city in console - By BobbyCobby
+
+## 4.21.8
+
+Fixed rivers on water near Rock of Gibraltar
+
+Resolved OOM errors on crash screen
+
+Resolved ANRs from tech picker and notification overview screens
+
+Fixed checking tile resource filters in dev console, for resources with revealing tech
+
+AI "trade for war declaration" reworked to disallow "kamikaze wars"
+
+Nicer trade overview UI
+
+By unciv-loof:
+- Non vanilla ranking types 
+- Hide average turn time until a full turn has been played 
+
+Max players with spectator - By SomeTroglodyte
+
+## 4.21.7
+
+CPU and memory performance improvements 
+
+ANR Bugfix: Only rebuild the minimap on drag, IF the minimap size actually changed.
+
+Hopefully solved Android 11/12 notch areas on some phones
+
+Fixed improvements not shown in map editor
+
+By unciv-loof:
+- Display players' average turn times in MP preview 
+- Fix Korean tech boost UA 
+
+Fixes for AI bugs - By ssamt
+
+fix: preserve carrier payloads during paradrop and transform - By mvanhorn
+
+## 4.21.6
+
+CPU performance improvements
+
+Disallow XP ruin rewards for civilian units in base rulesets
+
+AI: workers take into account future adjacencies for improvements - By EmperorPinguin
+
+Visually indicate failed MP upload - By cy-elec
+
+Chat: nation-colored names, white body - By Fanfblrik
+
+modding: Warn when OneTimeGainStat is used with a non-civ-wide stat (food/production) - By mvanhorn
+
+## 4.21.5
+
+By SomeTroglodyte:
+- Fix console civ removal not recalling spies 
+- Volume slider for voices is now "live" 
+- Individually automated units can get promotions 
+
+Fix the rounding of the values in the city ministats - By JPBergsma (new contributor!)
+
+By Angais:
+- Fix military unit gift notification locations 
+- Fix open borders vision priority 
+
+By EmperorPinguin:
+- AI Refine gold usage logic for constructions 
+- Prevent buying constructions nearing completion
+
+## 4.21.4
+
+CPU performance improvements for map lag and map generation latency
+
+perf: improve fps in technology picker screen - By shwwwa
+
+By Angais:
+- Fix city-state wary probability calculation 
+- Fix join-war penalty calculation
+
+By WhoIsJohannes:
+- Fix two AI evaluation bugs: inverted WLTKD luxury priority, defensive-pact ally force using wrong civ 
+- Fix two AI spaceship-race bugs: dead space-resource reserve, war push overwriting parts
+
+By Fanfblrik:
+- City-states found first city in place by default (opt-out unique) 
+- Start bias unique (Maritime Coast via CityStateType uniques) 
+
+By SomeTroglodyte:
+- Ruleset validator: Warn about potential infinite loops Free building -> Remove building
+- Allow specific commit links in "Download mod from URL"
+
+## 4.21.3
+
+Fixed mosque of djenne not working until industrial age
+
+By Fanfblrik: 
+- Don't wipe city-state relations on liberation 
+- Freeze Demographics rankings to turn-start snapshots 
+
+fix: MP upload no longer causes improvements to advance - By cy-elec
+
+By WhoIsJohannes:
+- AI improvements: parallel settlers, expansion un-latch, research agreements, annex guard 
+- CPU performance improvements 
+
+By SomeTroglodyte:
+- Fix "on losing unit" triggers running when a new unit can't be placed
+- Allow limited conditionals on UniqueType.HiddenFromCivilopedia
+- Catch load from custom location exceptions
+- Fix the tile info "needs tech" line
+
+## 4.21.2
+
+Disable constructions per city/game instead of client wide - By unciv-loof
+
+Replace -NC sounds with libre ones - By Wuzzy2
+
+Add [Resource] to tile. (Credit to Robloach) - By chenxing61
+
+Implement impi unique extra ranged attack - By O-spin
+
+Mod checker locates recursive citywide-resource countable in <for every [resource]> - By mvanhorn
+
+By SomeTroglodyte:
+- Button to check a Mod directly from the Mod manager screen
+- Politics overview "Ball of Yarn" makeover
+- New city overview column: Majority Religion
+- Allow pixel unit art option and modded extraImages for units to coexist
+- Make no-barbarians games ignore OneTimeRebel and OneTimeAmountRebels triggereables
+- Fix RekMod Moai can be built on water tiles with a resource
+- Prettify the city-state diplomacy page when a CS has _many_ protectors
+
+## 4.21.1
+
+Fixed stockpiled resource trade not actually transferring
+
+By SomeTroglodyte:
+- Build weight unique for personalities 
+- Fix flat earth map generation with no ice 
+
+By Angais:
+- Fix map notification tile selection 
+- Fix options cleanup on outside close 
+
+Replace arrow Unicode characters for wider compatibility - By cy-elec
+
+By SeventhM:
+- Fix uniques for losing hp missing full combat context
+
+implement "other" parameter for mapunit - By O-spin
+
+Fix inverted force-resign bank update - By L3odr0id
+
+Clean up licensing information - By Wuzzy2
+
+## 4.21.0
+
+Personalities displayed in Civilopedia - By SomeTroglodyte 
+
+Reworked VictoryScreen - By cy-elec
+
+Modding: Allow for 0 as a parameter for uniques looking for a number or above - By SeventhM
+
+Many, many small fixes - By Angais (with LLM assist)
+
+Avoid duplicate EventChoice entries in allICivilopediaText - By xplon
+
+## 4.20.19
+
+Hopefully solved city-screen audio problems
+
+Nation and Style no longer "fight" over the same image when the same style is shared between different nations
+
+Many, many small fixes - By Angais (with LLM assist) 
+
+## 4.20.18
+
+Conditional worker uniques no longer cause crashes when disabled
+
+Improvement hotkeys can no longer trigger twice when 2 improvements have the same key
+
+Specific civ images override style images
+
+Resolved A* "units with no movement consider occupied tiles moveable to" bug
+
+City borders and city buttons no longer disappear near the south edge
+
+CPU improvements 
+
+By unciv-loof:
+- Add mirroring type to map editor
+- Reorder map types
+
+## 4.20.17
+
+CPU performance improvements
+
+fix: Avoid crash when removing encampments from map editor
+
+Adjust lake and coastline formation of Boreal map type - By unciv-loof
+
+Console: Allow setting strategic resource deposit amount - By SomeTroglodyte
+
+## 4.20.16
+
+By unciv-loof:
+- Cap force bonus from AdditionalAttacks based on movement points 
+- Fix German unique ability 
+- Fix force calculation when measuring military presence near border 
+
+Make "Barbarian encampment" improvement moddable - By SomeTroglodyte
+
+By BobbyCobby:
+- Clearer mod update icon
+
+Fix map preview crash when changing rulesets - By Angais
+
+## 4.20.15
+
+Improvements that cost stockpiled resources do so when starting construction, not on end, similar to buildings and units
+
+Memory reduction for large maps
+
+AI in Prince difficulty get no unit cost reduction (1:1 with human players)
+
+Require CreatesOneImprovement targets be owned by constructing city - By superdusto
+
+Resource overview tab improvements - By SomeTroglodyte  
+
+Modding: Fixed Personality uniques validation - By mvanhorn
+
+## 4.20.14
+
+Fix "black screen on next turn button"
+
+Context menu indicators no longer always visible
+
+City buttons center correctly on the tile on zoom-in
+
+Yields no longer overlaps population icons in cities
+
+By SomeTroglodyte:
+- Make gesture timings user-settable in Options-Advanced 
+- Fix "Choose a music track" triggerable in unique builder 
+- Fix city-states always have personality "Friendly" 
+
+Prevent automation from orphaning CreatesOneImprovement markers - By superdusto
+
+## 4.20.13
+
+Large memory performance improvements for large maps  
+
+Modding: show exact location of json file errors
+
+By SomeTroglodyte:
+- Context menu visual indicators 
+- Modding: Fixed "empty name" problems 
+- Fix expansion clearing barbarian camps leaving obsolete quests 
+- City buy tile context menu, to buy several tiles at once 
+
+Avoid centering on hidden wonder locations - By xplon
+
+Respect alternative promotion prerequisites in validation - By superdusto
+
+## 4.20.12
+
+By xplon:
+- Hide icons when translating spy names 
+- Warn about translatable ruleset name collisions 
+
+By SomeTroglodyte:
+- Improve context menu indicator size 
+- Console: `civ add` and `civ remove` commands 
+
+Add missing newline in advanced game settings - By unciv-loof
+
+## 4.20.11
+
+Fix double buttons for great people for constructing great improvements
+
+Fixed custom file directories on Android
+
+Approve values of 0 for certain mod constants in validator - By unciv-loof
+
+By SomeTroglodyte: 
+- Fix black outlines for Stat symbols in notifications
+- Fix TriggerUponLosingUnit 
+- Fix Android on screen keyboard show/hide
+- Minor CPU optimization
+
+Add "Vegetation" to Marsh - By EmperorPinguin
+
+## 4.20.10
+
+By SomeTroglodyte: 
+- Free policy notifications open policy screen 
+- A new triggerable Unique to choose a music track 
+- Better Scenario starts with fewer surprises 
+
+Boreal map type - By unciv-loof
+
+## 4.20.9
+
+AIs no longer stop creating cities late-game
+
+Add nation and capital city indicators in spy management
+
+Workers try to stay spread out - By Ambeco
+
+By SomeTroglodyte:
+- Show modifiers properly for improvement maintenance 
+- Fix translation generation for Comment nesting typed uniques 
+
+By unciv-loof:
+- Prevent AI from denouncing defeated civs 
+- Do not display (Unknown) after Civ name in MP metadata preview 
+
+Fix Educated Elite policy not gifting Great People - By AutumnPizazz
+
+## 4.20.8
+
+Seamless world wrap generation for procedural maps - By Romelium
+
+By SomeTroglodyte:
+- Improve "Battle Table" on small screens 
+- CPU performance improvements 
+
+RAM performance improvements - By Ambeco
+
+## 4.20.7
+
+Rendering improvements for large maps
+
+Bugfix for military presence check - By unciv-loof
+
+"cannot build xx buildings" unique - By chenxing61
+
+## 4.20.6
+
+By SeventhM:
+- Allow enabling embassies in Global/Policy/Era uniques instead of just techs 
+- Fix redundant requirement for sending embassies 
+- Add countables for worked tiles/population 
+- Fix edge case where Great Prophet costs are wrong 
+
+Improve language handling and slightly ease use of first-run language picker - By SomeTroglodyte
+
+CPU performance improvements - By Ambeco
+
+## 4.20.5
+
+modding: Correctly ignore possible filtering uniques for ruleset-disabled uniques
+
+modding: Check for event loops that the AI can get stuck in
+
+By SomeTroglodyte:
+- Improve Civilopedia around Diplomacy concepts depending on Embassies
+- Fixed map editor crash 
+
+Trigger upon losing unit unique - By PLynx01
+
+Handle display cutout in all orientations and fix rotation - By Gatien-L
+
+## 4.20.4
+
+modding: Ignore ruleset-specific errors when unique is disabled in this ruleset
+
+By SomeTroglodyte:
+- Hide religion- or espionage-specific demands when disabled 
+- Fixed NPE when Espionage Screen is used to move a spy to an unknown civ's city 
+
+By unciv-loof:
+- Add missing table row for city resistance 
+
+By Ambeco:
+- Unciv can receive links directly to games or new friends
+- Prevent save-scumming for more types of randomness
+
+Added option to stop workers from removing vegetation - By Emandac
+
+## 4.20.3
+
+Custom maps are retained when starting a new game from an old one
+
+Spies "evacuate" correctly from destroyed cities
+
+Spectators can see the building list again
+
+By unciv-loof:
+- Confirmation popup before breaking promise not to spy 
+- ConstructImprovementInstantly now clears tile improvement queue 
+
+Fixed issue with units selection in city - By ValeraShimchuck
+
+By Ambeco:
+- AI: Minimize movement before attacking
+- PathingMap can now also BFS, taking moveCost into consideration 
+
+## 4.20.2
+
+By unciv-loof:
+- Add back option to disable rendering of unitset in display settings 
+- Do not forcibly reset mod selections after closing warning in new game screen 
+- Clicking Bully and Conquer CS quests centers map on target's capital 
+- Don't display empty message in 'declare war' popup 
+- AIs can denounce multiple civs 
+
+Allow beliefs gotten from triggers to use triggerables - by SeventhM
+
+Ocean Ice should spawn again - by Ambeco
+
+## 4.20.1
+
+Drastically reduced memory consumption
+
+Barbarian encampments removed when tile enters civ territory
+
+Peace/war declarations on a third civ not considered trade "gifts"
+
+Fixed rare crash in cities when purchasing
+
+Buildings with "Moves to new capital when capital changes" not destroyed on city capture
+
+Desktop executables: Max JVM RAM *actually* increased to 4GB  
+
+Notifications shown in UI in order
+
+By unciv-loof:
+- Denouncement popups with moddable messages and audio 
+- turn 0 Autosave 
+
+## 4.20.0
+
+By unciv-loof:
+- Fix embassy trade logic bug 
+- Popup after other civ responds to a demand 
+
+By SeventhM:
+- Add conditionals for current unit movement 
+- Fix unavailable unique being ignored in unexpected places 
+
+Theoretical improvements to workerAutomation performance - By Ambeco
+
+Fixed translation in multiplayer game preview description - By evanofficial (new contributor!)
+
+'Upon signing a peace treaty' unique - By PLynx01
+
+## 4.19.19
+
+Reset tileset settings when deleting the mod that contained the tileset
+
+AIs ignore demands/declarations of friendship from dead civs
+
+By Ambeco:
+- AStar pathing no longer treats rivers as multi-turn obstacles 
+- flat earth hexigonal no longer crashes 
+
+Bugfix: don't try to buy missionaries in cities with a civilian unit - By EmperorPinguin
+
+## 4.19.18
+
+Ignore free promotions for promotion path costs
+
+Allow gaining free promotions before gaining XP
+
+By Ambeco:
+- Mods can have multiple Ocean and Coast Terrains 
+- AStar moves through same tiles as Classic  
+
+Add showDemographics option - By ICanSeeForever
+
+Forced unit disbandment considers refundability and promotions - By unciv-loof
+DenounceWillingness personality trait - by unciv-loof
+
+AI: only get mad at spreading religion while they can found their own - By EmperorPinguin
+
+## 4.19.17
+
+Ruleset switching in new game screen no longer allows zero victory types
+
+Users cannot offer negative gold with "-50" buttons
+
+By unciv-loof:
+- Notification shows who is responsible for skipping or resigning a player 
+- Newly fetched mod entries respect current filter 
+- Declaation of War + Declaration of Friendship UI improvements
+
+By Ambeco:
+- Fixed alternate pathfinding bugs 
+- Unitactions and UnitTriggers have moddable priority
+- Eliminated most Hardcoded Terrains 
+
 ## 4.19.16
 
 Changed default max RAM from 1GB to 4GB, it's 2026, let people go crazy if they want

@@ -83,14 +83,14 @@ class MapUnitCache(private val mapUnit: MapUnit) {
         canMoveOnWater = mapUnit.hasUnique(UniqueType.CanMoveOnWater)
 
         doubleMovementInTerrain.clear()
-        for (unique in mapUnit.getMatchingUniques(UniqueType.DoubleMovementOnTerrain,
-                gameContext = GameContext.IgnoreConditionals, true)) {
+        mapUnit.forEachMatchingUnique(UniqueType.DoubleMovementOnTerrain,
+                gameContext = GameContext.IgnoreConditionals, checkCivInfoUniques = true) { unique ->
             val param = unique.params[0]
             val terrain = mapUnit.civ.gameInfo.ruleset.terrains[param]
             doubleMovementInTerrain[param] = DoubleMovement(unique = unique,
                 terrainTarget =  when {
                     terrain == null -> DoubleMovementTerrainTarget.Filter
-                    terrain.name == Constants.hill -> DoubleMovementTerrainTarget.Hill
+                    terrain.isHill -> DoubleMovementTerrainTarget.Hill
                     terrain.type == TerrainType.TerrainFeature -> DoubleMovementTerrainTarget.Feature
                     terrain.type.isBaseTerrain -> DoubleMovementTerrainTarget.Base
                     else -> DoubleMovementTerrainTarget.Filter

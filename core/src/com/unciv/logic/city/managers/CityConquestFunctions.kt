@@ -1,9 +1,11 @@
-﻿package com.unciv.logic.city.managers
+package com.unciv.logic.city.managers
 
 import com.unciv.Constants
 import com.unciv.GUI
 import com.unciv.logic.battle.Battle
 import com.unciv.logic.city.City
+import com.unciv.logic.city.City.Companion.NO_ID
+import com.unciv.logic.city.City.Companion.pseudoRandomId
 import com.unciv.logic.city.CityFlags
 import com.unciv.logic.city.CityFocus
 import com.unciv.logic.civilization.Civilization
@@ -31,20 +33,25 @@ import kotlin.random.Random
 
 /** Helper class for containing 200 lines of "how to move cities between civs" */
 class CityConquestFunctions(val city: City) {
+    companion object {
+        const val MINOR_FRIENDSHIP_AT_WAR = -60f
+        const val MINOR_LIBERATION_FRIENDSHIP = 105f
+    }
+
     private val tileBasedRandom = Random(city.getCenterTile().position.hashCode())
 
     @Readonly
     private fun getGoldForCapturingCity(conqueringCiv: Civilization): Int {
         val baseGold = 20 + 10 * city.population.population + tileBasedRandom.nextInt(40)
         val turnModifier = max(0, min(50, city.civ.gameInfo.turns - city.turnAcquired)) / 50f
-        
+
         var cityModifier = 1f
-        for (unique in city.getMatchingUniques(UniqueType.GoldFromCapturingCity, city.state)) {
+        city.forEachMatchingUnique(UniqueType.GoldFromCapturingCity, city.state) { unique ->
             cityModifier *= unique.params[0].toPercent()
         }
 
         var conqueringCivModifier = 1f
-        for (unique in conqueringCiv.getMatchingUniques(UniqueType.GoldFromEncampmentsAndCities, conqueringCiv.state)) {
+        conqueringCiv.forEachMatchingUnique(UniqueType.GoldFromEncampmentsAndCities, conqueringCiv.state) { unique ->
             conqueringCivModifier *= unique.params[0].toPercent()
         }
 
@@ -58,6 +65,7 @@ class CityConquestFunctions(val city: City) {
             when {
                 building.hasUnique(UniqueType.NotDestroyedWhenCityCaptured) || building.isWonder -> continue
                 building.hasUnique(UniqueType.IndicatesCapital, city.state) -> continue // Palace needs to stay a just a bit longer so moveToCiv isn't confused
+                building.hasUnique(UniqueType.MovesToNewCapital, city.state) -> continue // Will move to the civ's new capital
                 building.hasUnique(UniqueType.DestroyedWhenCityCaptured) ->
                     city.cityConstructions.removeBuilding(building)
                 // Regular buildings have a 34% chance of removal
@@ -89,7 +97,7 @@ class CityConquestFunctions(val city: City) {
                 city.cityConstructions.removeBuilding(building)
 
             // Check if we exceed MaxNumberBuildable for any buildings
-            for (unique in building.getMatchingUniques(UniqueType.MaxNumberBuildable)) {
+            building.forEachMatchingUnique(UniqueType.MaxNumberBuildable, GameContext.EmptyState) { unique ->
                 if (city.civ.cities
                         .count {
                             it.cityConstructions.containsBuildingOrEquivalent(building.name)
@@ -171,7 +179,7 @@ class CityConquestFunctions(val city: City) {
             city.removeFlag(CityFlags.Resistance)
         }
 
-        for (unique in conqueredCiv.getTriggeredUniques(UniqueType.TriggerUponLosingCity, GameContext(civInfo = conqueredCiv))) {
+        conqueredCiv.forEachTriggeredUnique(UniqueType.TriggerUponLosingCity, GameContext(civInfo = conqueredCiv), ignoreCities = false) { unique ->
             UniqueTriggerActivation.triggerUnique(unique, civInfo = conqueredCiv)
         }
     }
@@ -225,7 +233,7 @@ class CityConquestFunctions(val city: City) {
         }
         return false
     }
-    
+
     private fun makePuppet(){
         city.isPuppet = true
         // The city could be producing something that puppets shouldn't, like units
@@ -337,22 +345,6 @@ class CityConquestFunctions(val city: City) {
         }
 
         val foundingCiv = city.foundingCivObject!!
-        if (foundingCiv.isDefeated()) { // resurrected civ
-            for (diploManager in foundingCiv.diplomacy.values) {
-                if (diploManager.diplomaticStatus == DiplomaticStatus.War)
-                    diploManager.makePeace()
-
-                // Clear all diplomatic flags and modifiers to prevent asymmetry after resurrection
-                // The defeated civ's flags were frozen while other civs' flags continued to expire
-                // Perhaps some of this needs more dedicated treatment but it's a pretty rare case anyway
-                //   so I think starting from scratch is a good way to go 
-                diploManager.flagsCountdown.clear()
-                diploManager.otherCivDiplomacy().flagsCountdown.clear()
-                diploManager.diplomaticModifiers.clear()
-                diploManager.otherCivDiplomacy().diplomaticModifiers.clear()
-            }
-        }
-
         val oldCiv = city.civ
 
         diplomaticRepercussionsForLiberatingCity(conqueringCiv, oldCiv)
@@ -390,7 +382,8 @@ class CityConquestFunctions(val city: City) {
                 foundingCiv.cityStateFunctions.initCityState(
                     gameInfo.ruleset,
                     gameInfo.gameParameters.startingEra,
-                    emptySequence()
+                    emptySequence(),
+                    com.unciv.models.ruleset.unique.GameContext(gameInfo = gameInfo).stateBasedRandom("CityConquestFunctions.initCityState")
                 )
             }
             if (!foundingCiv.knows(conqueringCiv))
@@ -453,19 +446,43 @@ class CityConquestFunctions(val city: City) {
     private fun diplomaticRepercussionsForLiberatingCity(conqueringCiv: Civilization, conqueredCiv: Civilization) {
         val foundingCiv = city.foundingCivObject!!
         val percentageOfCivPopulationInThatCity = city.population.population *
-                100f / (foundingCiv.cities.sumOf { it.population.population } + city.population.population)
+            100f / (foundingCiv.cities.sumOf { it.population.population } + city.population.population)
         val respectForLiberatingOurCity = 10f + percentageOfCivPopulationInThatCity.roundToInt()
 
         if (foundingCiv.isMajorCiv()) {
+            if (foundingCiv.isDefeated()) { // resurrected civ
+                for (diploManager in foundingCiv.diplomacy.values) {
+                    if (diploManager.diplomaticStatus == DiplomaticStatus.War)
+                        diploManager.makePeace()
+
+                    // Clear all diplomatic flags and modifiers to prevent asymmetry after resurrection
+                    // The defeated civ's flags were frozen while other civs' flags continued to expire
+                    // Perhaps some of this needs more dedicated treatment but it's a pretty rare case anyway
+                    //   so I think starting from scratch is a good way to go 
+                    diploManager.flagsCountdown.clear()
+                    diploManager.otherCivDiplomacy().flagsCountdown.clear()
+                    diploManager.diplomaticModifiers.clear()
+                    diploManager.otherCivDiplomacy().diplomaticModifiers.clear()
+                }
+            }
+
             // In order to get "plus points" in Diplomacy, you have to establish diplomatic relations if you haven't yet
             foundingCiv.getDiplomacyManagerOrMeet(conqueringCiv)
-                    .addModifier(DiplomaticModifiers.CapturedOurCities, respectForLiberatingOurCity)
+                .addModifier(DiplomaticModifiers.CapturedOurCities, respectForLiberatingOurCity)
             val openBordersTrade = TradeLogic(foundingCiv, conqueringCiv)
             openBordersTrade.currentTrade.ourOffers.add(TradeOffer(Constants.openBorders, TradeOfferType.Agreement, speed = conqueringCiv.gameInfo.speed))
             openBordersTrade.acceptTrade(false)
         } else {
-            // Territorial Warfare: liberating/returning a city-state gives 500 influence (was 90)
-            foundingCiv.getDiplomacyManagerOrMeet(conqueringCiv).setInfluence(500f)
+            // TW: liberating/returning a city-state gives a generous 500 influence floor (was 90),
+            // structured like upstream's fix (#15226) so a rival's existing influence with this
+            // city-state can never outbid the liberator's gratitude.
+            val maxOtherInfluence = foundingCiv.diplomacy.values
+                .filter { it.otherCiv != conqueringCiv && it.otherCiv.isMajorCiv() && it.otherCiv.isAlive() }
+                .fold(MINOR_FRIENDSHIP_AT_WAR) { a, b -> a.coerceAtLeast(b.getInfluence()) }
+            val diplomacy = foundingCiv.getDiplomacyManagerOrMeet(conqueringCiv)
+            val liberatorNewInfluence = maxOtherInfluence.coerceAtLeast(diplomacy.getInfluence())
+                .coerceAtLeast(500f)
+            diplomacy.setInfluence(liberatorNewInfluence)
             if (foundingCiv.isAtWarWith(conqueringCiv)) {
                 val tradeLogic = TradeLogic(foundingCiv, conqueringCiv)
                 tradeLogic.currentTrade.ourOffers.add(TradeOffer(Constants.peaceTreaty, TradeOfferType.Treaty, speed = conqueringCiv.gameInfo.speed))
@@ -477,7 +494,7 @@ class CityConquestFunctions(val city: City) {
         val otherCivsRespectForLiberating = (respectForLiberatingOurCity / 10).roundToInt().toFloat()
         for (thirdPartyCiv in conqueringCiv.getKnownCivs().filter { it.isMajorCiv() && it != conqueredCiv }) {
             thirdPartyCiv.getDiplomacyManager(conqueringCiv)!!
-                    .addModifier(DiplomaticModifiers.LiberatedCity, otherCivsRespectForLiberating) // Cool, keep at at! =D
+                .addModifier(DiplomaticModifiers.LiberatedCity, otherCivsRespectForLiberating) // Cool, keep at it! =D
         }
     }
 
@@ -492,6 +509,7 @@ class CityConquestFunctions(val city: City) {
         oldCiv.cities = oldCiv.cities.withoutItem(city)
         newCiv.cities = newCiv.cities.withItem(city)
         city.civ = newCiv
+        city.id = if (city.id != NO_ID) city.id else pseudoRandomId(newCiv)
         city.state = GameContext(city)
         city.hasJustBeenConquered = false
         city.turnAcquired = city.civ.gameInfo.turns
@@ -499,8 +517,8 @@ class CityConquestFunctions(val city: City) {
         city.previousOwner = oldCiv.civID
 
         // now that the tiles have changed, we need to reassign population
-        for (workedTile in city.workedTiles.filterNot { city.tiles.contains(it) }) {
-            city.population.stopWorkingTile(workedTile)
+        for (tile in city.getWorkedTiles().filter { it.position !in city.tiles }.toList()) {
+            city.stopWorkingTile(tile)
             city.population.autoAssignPopulation()
         }
 
@@ -567,6 +585,9 @@ class CityConquestFunctions(val city: City) {
         }
         // Note: barbarian protection (no spawning) extends to all Russian territory now,
         // but tile-conquest reversal stays scoped to tundra/snow per the original design.
+
+        city.resetDisabledConstructions()
+        city.resetSpecialistsControl()
 
         newCiv.cache.updateOurTiles()
         oldCiv.cache.updateOurTiles()
@@ -694,7 +715,8 @@ class CityConquestFunctions(val city: City) {
             gameInfo.civilizations.add(newCsCiv)
             newCsCiv.setNationTransient()
             newCsCiv.setTransients()
-            newCsCiv.cityStateFunctions.initCityState(ruleset, gameInfo.gameParameters.startingEra, emptySequence())
+            newCsCiv.cityStateFunctions.initCityState(ruleset, gameInfo.gameParameters.startingEra, emptySequence(),
+                com.unciv.models.ruleset.unique.GameContext(gameInfo = gameInfo).stateBasedRandom("CityConquestFunctions.initCityState"))
         }
 
         // Diplomatic repercussions happen before city moves
@@ -786,7 +808,8 @@ class CityConquestFunctions(val city: City) {
             gameInfo.civilizations.add(newCsCiv)
             newCsCiv.setNationTransient()
             newCsCiv.setTransients()
-            newCsCiv.cityStateFunctions.initCityState(ruleset, gameInfo.gameParameters.startingEra, emptySequence())
+            newCsCiv.cityStateFunctions.initCityState(ruleset, gameInfo.gameParameters.startingEra, emptySequence(),
+                com.unciv.models.ruleset.unique.GameContext(gameInfo = gameInfo).stateBasedRandom("CityConquestFunctions.initCityState"))
         }
 
         // Transfer the city (voluntary — no war, no resistance)

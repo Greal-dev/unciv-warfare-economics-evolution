@@ -2,10 +2,12 @@ package com.unciv.models.ruleset.unique
 
 import com.unciv.UncivGame
 import com.unciv.logic.GameInfo
+import com.unciv.models.ruleset.Building
 import com.unciv.models.ruleset.Ruleset
 import com.unciv.models.ruleset.tech.Era
 import com.unciv.models.ruleset.tech.TechColumn
 import com.unciv.models.ruleset.tech.Technology
+import com.unciv.models.ruleset.unit.BaseUnit
 import com.unciv.models.stats.INamed
 import com.unciv.ui.components.extensions.toPercent
 import yairm210.purity.annotations.Readonly
@@ -44,8 +46,16 @@ interface IHasUniques : INamed {
     @Readonly fun getUniqueTarget(): UniqueTarget
 
     @Readonly
+    /** forEachMatchingUnique faster, for cases that require high perf */
     fun getMatchingUniques(uniqueType: UniqueType, state: GameContext = GameContext.EmptyState) =
         uniqueMap.getMatchingUniques(uniqueType, state)
+
+    @Readonly
+    fun forEachMatchingUnique(uniqueType: UniqueType, gameContext: GameContext, filter:(Unique)->Boolean, op: (unique: Unique)->Unit)
+        = uniqueMap.forEachMatchingUnique(uniqueType, gameContext, filter, op)
+    @Readonly
+    fun forEachMatchingUnique(uniqueType: UniqueType, gameContext: GameContext, op: (unique: Unique)->Unit)
+        = uniqueMap.forEachMatchingUnique(uniqueType, gameContext, op)
 
     @Readonly
     fun getMatchingTagUniques(uniqueTag: String, state: GameContext = GameContext.EmptyState) =
@@ -93,7 +103,7 @@ interface IHasUniques : INamed {
 
     @Readonly
     fun techColumn(ruleset: Ruleset): TechColumn? =
-            requiredTechnologies(ruleset).map { it?.column }.filterNotNull().maxByOrNull { it.columnNumber }
+        requiredTechnologies(ruleset).mapNotNull { it?.column }.maxByOrNull { it.columnNumber }
             // This will return null only if *all* required techs have null TechColumn.
 
     @Readonly
@@ -112,8 +122,26 @@ interface IHasUniques : INamed {
         var weight = 1f
         for (unique in getMatchingUniques(UniqueType.AiChoiceWeight, gameContext))
             weight *= unique.params[0].toPercent()
+
+        // TODO We should have an IHasMatchesFilter?
+        if (this !is BaseUnit && this !is Building) return weight
+        val personality = gameContext.civInfo?.getPersonality() ?: return weight
+
+        for (unique in personality.getMatchingUniques(UniqueType.PersonalityAiWeight, gameContext)) {
+            val factor = unique.params[0].toPercent()
+            when (this) {
+                is BaseUnit if matchesFilter(unique.params[1], gameContext) -> weight *= factor
+                is Building if matchesFilter(unique.params[1], gameContext) -> weight *= factor
+            }
+        }
         return weight
     }
+
+    /** Do this object's [UniqueType.OnlyAvailable] and [UniqueType.Unavailable] uniques all pass for [gameContext]? */
+    @Readonly
+    fun isAvailable(gameContext: GameContext) =
+        getMatchingUniques(UniqueType.OnlyAvailable, GameContext.IgnoreConditionals).none { !it.conditionalsApply(gameContext) } &&
+        getMatchingUniques(UniqueType.Unavailable, gameContext).none()
 
     /**
      *  Is this ruleset object unavailable as determined by settings chosen at game start?
@@ -124,18 +152,6 @@ interface IHasUniques : INamed {
      */
     @Readonly
     fun isUnavailableBySettings(gameInfo: GameInfo): Boolean {
-        val gameBasedConditionals = setOf(
-            UniqueType.ConditionalVictoryDisabled,
-            UniqueType.ConditionalVictoryEnabled,
-            UniqueType.ConditionalSpeed,
-            UniqueType.ConditionalDifficulty,
-            UniqueType.ConditionalDifficultyOrHigher,
-            UniqueType.ConditionalDifficultyOrLower,
-            UniqueType.ConditionalReligionEnabled,
-            UniqueType.ConditionalReligionDisabled,
-            UniqueType.ConditionalEspionageEnabled,
-            UniqueType.ConditionalEspionageDisabled,
-        )
         val gameContext = GameContext(gameInfo = gameInfo)
 
         if (getMatchingUniques(UniqueType.Unavailable, GameContext.IgnoreConditionals)
@@ -171,7 +187,7 @@ interface IHasUniques : INamed {
         gameInfo: GameInfo?,
         ruleset: Ruleset? = null
     ): Boolean {
-        if (hasUnique(UniqueType.HiddenFromCivilopedia)) return true
+        if (hasUnique(UniqueType.HiddenFromCivilopedia, GameContext(gameInfo = gameInfo))) return true
         if (gameInfo != null && isUnavailableBySettings(gameInfo)) return true
         if (gameInfo == null && ruleset != null) {
             /* No game is loaded, but we know the Ruleset. This happens when opening Civilopedia from MainMenuScreen right after launch.
@@ -207,6 +223,25 @@ interface IHasUniques : INamed {
             if (unique.hasModifier(enabler)) return !hasFeature
             if (unique.hasModifier(disabler)) return hasFeature
         }
+        for (unique in getMatchingUniques(UniqueType.Unavailable, GameContext.IgnoreConditionals)) {
+            if (unique.hasModifier(enabler)) return hasFeature
+            if (unique.hasModifier(disabler)) return !hasFeature
+        }
         return false
+    }
+    
+    companion object {
+        val gameBasedConditionals = setOf(
+            UniqueType.ConditionalVictoryDisabled,
+            UniqueType.ConditionalVictoryEnabled,
+            UniqueType.ConditionalSpeed,
+            UniqueType.ConditionalDifficulty,
+            UniqueType.ConditionalDifficultyOrHigher,
+            UniqueType.ConditionalDifficultyOrLower,
+            UniqueType.ConditionalReligionEnabled,
+            UniqueType.ConditionalReligionDisabled,
+            UniqueType.ConditionalEspionageEnabled,
+            UniqueType.ConditionalEspionageDisabled,
+        )
     }
 }

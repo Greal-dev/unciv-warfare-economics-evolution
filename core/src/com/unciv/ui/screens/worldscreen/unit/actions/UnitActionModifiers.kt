@@ -210,4 +210,12 @@ object UnitActionModifiers {
         return if (effects.isEmpty()) ""
         else "(${effects.joinToString { it.tr() }})"
     }
+    
+    @Readonly
+    fun getUseFrequency(unit: MapUnit, actionUnique: Unique?, default: Float): Float {
+        val modifier = actionUnique?.modifiersMap?.get(UniqueType.UnitActionPriority)
+            ?.firstOrNull { it.conditionalsApply(unit.cache.state) } ?: return default
+                
+        return modifier.params[0].toFloat()
+    }
 }
