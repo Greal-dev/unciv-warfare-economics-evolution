@@ -11,13 +11,25 @@ object FrontAutomation {
     /** Radius around the token in which enemy divisions count toward the estimated balance. */
     private const val SCOUT_RADIUS = 3
 
-    /** Posture for a ratio of own force to the force expected in front, and the health of the division. */
-    fun chooseStance(ratio: Float, health: Int, inContact: Boolean): FrontStance = when {
-        !inContact && health < 50 -> FrontStance.Defensive // rest and be reinforced
-        ratio > 2f -> FrontStance.Aggressive
+    /** Health below which a division in contact is relieved: it falls back to be reinforced. */
+    const val RELIEVE_BELOW = 45
+    /** Health a resting division regains before it returns to the front, so it does not oscillate. */
+    const val REST_UNTIL = 80
+    /** Health under which a division no longer starts an aggressive offensive nor marches out of contact. */
+    const val FIT_FOR_OFFENSIVE = 60
+    /** Radius in which a fresh division looks for a weakened comrade to relieve. */
+    private const val RELIEF_RADIUS = 6
+
+    /**
+     * Posture for a ratio of own force to the force expected in front, and the health of the division.
+     * @param previous posture of the previous round, used to rest until [REST_UNTIL] once out of contact
+     */
+    fun chooseStance(ratio: Float, health: Int, inContact: Boolean, previous: FrontStance = FrontStance.Defensive): FrontStance = when {
+        inContact && health < RELIEVE_BELOW -> FrontStance.Withdrawal
+        !inContact && health < FIT_FOR_OFFENSIVE -> FrontStance.Defensive // rest and be reinforced
+        !inContact && health < REST_UNTIL && !previous.presses -> FrontStance.Defensive
+        ratio > 2f && health >= FIT_FOR_OFFENSIVE -> FrontStance.Aggressive
         ratio > 1.2f -> FrontStance.Moderate
-        ratio >= 0.8f -> FrontStance.Defensive
-        health < 40 -> FrontStance.Withdrawal
         else -> FrontStance.Defensive
     }
 
@@ -42,10 +54,24 @@ object FrontAutomation {
 
         val contact = division.currentTile.getTilesInDistance(FrontMath.ZONE_RADIUS)
             .any { FrontResolver.isContactTile(it, civ) }
-        val stance = chooseStance(own / expected, division.health, contact)
+        val stance = chooseStance(own / expected, division.health, contact, FrontResolver.stanceOf(division))
         division.frontStance = stance.name
 
         if (!contact && stance != FrontStance.Defensive) advanceTowardEnemy(division)
+        else if (stance == FrontStance.Defensive && division.health >= REST_UNTIL) relieveWeakComrade(division)
+    }
+
+    /** A fresh division on hold walks toward the closest weakened comrade in contact, to take over its front. */
+    private fun relieveWeakComrade(division: MapUnit) {
+        val civ = division.civ
+        val here = division.currentTile
+        val weak = here.getTilesInDistance(RELIEF_RADIUS).mapNotNull { it.militaryUnit }
+            .filter { it != division && it.civ == civ && FrontResolver.isDivision(it) && it.health < REST_UNTIL &&
+                it.currentTile.getTilesInDistance(FrontMath.ZONE_RADIUS).any { tile -> FrontResolver.isContactTile(tile, civ) } }
+            .minWithOrNull(compareBy({ it.currentTile.aerialDistanceTo(here) }, { it.currentTile.position.x }, { it.currentTile.position.y }))
+            ?: return
+        if (weak.currentTile.aerialDistanceTo(here) <= 1) return
+        division.movement.headTowards(weak.currentTile)
     }
 
     private fun advanceTowardEnemy(division: MapUnit) {
