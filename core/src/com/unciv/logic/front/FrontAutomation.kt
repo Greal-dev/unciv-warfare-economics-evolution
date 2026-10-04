@@ -28,13 +28,17 @@ object FrontAutomation {
             return
         }
         val era = civ.getEraNumber()
-        val own = FrontMath.baseStrength(era) * division.health / 100f
-        val enemies = division.currentTile.getTilesInDistance(SCOUT_RADIUS)
-            .mapNotNull { it.militaryUnit }
-            .filter { FrontResolver.isDivision(it) && civ.isAtWarWith(it.civ) }
-            .toList()
+        val neighbourhood = division.currentTile.getTilesInDistance(SCOUT_RADIUS).mapNotNull { it.militaryUnit }
+            .filter { FrontResolver.isDivision(it) }.toList()
+        // Own force counts the friendly divisions of the neighbourhood: they cover the same front
+        val own = neighbourhood.filter { it.civ == civ }
+            .sumOf { (FrontMath.baseStrength(era) * it.health / 100f).toDouble() }.toFloat()
+        val enemies = neighbourhood.filter { civ.isAtWarWith(it.civ) }
         val expected = if (enemies.isEmpty()) FrontMath.BASE_RESISTANCE
-            else enemies.sumOf { (FrontMath.baseStrength(it.civ.getEraNumber()) * it.health / 100f).toDouble() }.toFloat()
+            // An enemy division that holds its line resists with its posture and its entrenchment
+            else enemies.sumOf {
+                FrontMath.resistance(it.health, it.civ.getEraNumber(), FrontResolver.stanceOf(it), it.frontEntrenchment).toDouble()
+            }.toFloat()
 
         val contact = division.currentTile.getTilesInDistance(FrontMath.ZONE_RADIUS)
             .any { FrontResolver.isContactTile(it, civ) }

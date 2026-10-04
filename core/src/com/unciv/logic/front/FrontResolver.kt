@@ -41,7 +41,7 @@ object FrontResolver {
         }
 
         val pressures = collectPressures(divisions)
-        val losses = LinkedHashMap<MapUnit, Float>()
+        val losses = LinkedHashMap<MapUnit, LossTally>()
         val inContact = LinkedHashSet<MapUnit>()
         val pressedTiles = LinkedHashSet<Tile>()
 
@@ -175,7 +175,7 @@ object FrontResolver {
     // region losses and upkeep of divisions
 
     private fun accumulateLosses(
-        losses: MutableMap<MapUnit, Float>, inContact: MutableSet<MapUnit>,
+        losses: MutableMap<MapUnit, LossTally>, inContact: MutableSet<MapUnit>,
         attackers: List<Contribution>, pressure: Float,
         defenders: List<Contribution>, resistance: Float
     ) {
@@ -185,14 +185,14 @@ object FrontResolver {
             inContact += attacker.unit
             val loss = FrontMath.loss(resistance, pressure, attacker.force / pressure,
                 stanceOf(attacker.unit).taken, dealtByDefenders)
-            losses[attacker.unit] = (losses[attacker.unit] ?: 0f) + loss
+            losses.getOrPut(attacker.unit) { LossTally() }.add(loss)
         }
         val defenderForce = defenders.sumOf { it.force.toDouble() }.toFloat()
         for (defender in defenders) {
             inContact += defender.unit
             val loss = FrontMath.loss(pressure, resistance, defender.force / defenderForce,
                 stanceOf(defender.unit).taken, dealtByAttackers)
-            losses[defender.unit] = (losses[defender.unit] ?: 0f) + loss
+            losses.getOrPut(defender.unit) { LossTally() }.add(loss)
         }
     }
 
@@ -203,8 +203,19 @@ object FrontResolver {
         return side.sumOf { (stanceOf(it.unit).dealt * it.force).toDouble() }.toFloat() / total
     }
 
-    private fun applyLosses(losses: Map<MapUnit, Float>) {
-        for ((unit, loss) in losses) unit.health = (unit.health - loss.roundToInt()).coerceAtLeast(0)
+    /**
+     * Losses of a division over the tiles it fights on. They are averaged, not summed: a division
+     * spread over four tiles is not four times as exposed, its troops are only stretched over them.
+     */
+    private class LossTally {
+        private var sum = 0f
+        private var tiles = 0
+        fun add(loss: Float) { sum += loss; tiles++ }
+        fun average() = if (tiles == 0) 0f else sum / tiles
+    }
+
+    private fun applyLosses(losses: Map<MapUnit, LossTally>) {
+        for ((unit, tally) in losses) unit.health = (unit.health - tally.average().roundToInt()).coerceAtLeast(0)
     }
 
     private fun updateDivisions(divisions: List<MapUnit>, inContact: Set<MapUnit>) {
