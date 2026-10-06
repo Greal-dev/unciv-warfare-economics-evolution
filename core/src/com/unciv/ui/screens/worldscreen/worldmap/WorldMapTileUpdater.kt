@@ -55,10 +55,34 @@ object WorldMapTileUpdater {
                 if (tileView.tile in plan) group.layerOverlay.showHighlight(Color.ORANGE, 0.7f)
         }
 
+        updateFrontOverlay()
+
         // Same as below - randomly, tileGroups doesn't seem to contain the selected tile, and this doesn't seem reproducible
         tileGroups[selectedTile]?.layerOverlay?.showHighlight(Color.WHITE)
 
         zoom(scaleX) // zoom to current scale, to set the size of the city buttons after "next turn"
+    }
+
+    /**
+     * Front mode: the zone of the selected division in cyan and the tiles it presses in orange,
+     * then every enemy tile under pressure in red, the more opaque the closer it is to changing hands.
+     */
+    private fun WorldMapHolder.updateFrontOverlay() {
+        if (!worldScreen.gameInfo.gameParameters.frontMode) return
+        val viewer = worldScreen.viewingCiv
+        val division = worldScreen.bottomUnitTable.selectedUnits.firstOrNull()?.getUnit()
+            ?.takeIf { com.unciv.logic.front.FrontResolver.isDivision(it) }
+        if (division != null) {
+            for (tile in division.currentTile.getTilesInDistance(com.unciv.logic.front.FrontMath.ZONE_RADIUS))
+                tileGroups[tileMapView.getTile(tile)]?.layerOverlay?.showHighlight(Color.CYAN, 0.15f)
+            for (tile in com.unciv.logic.front.FrontResolver.pressedTilesOf(division))
+                tileGroups[tileMapView.getTile(tile)]?.layerOverlay?.showHighlight(Color.ORANGE, 0.4f)
+        }
+        for (tile in worldScreen.gameInfo.tileMap.values) {
+            if (tile.frontProgress <= 0f || !viewer.hasExplored(tile)) continue
+            val share = (tile.frontProgress / com.unciv.logic.front.FrontMath.FLIP_PROGRESS).coerceAtMost(1f)
+            tileGroups[tileMapView.getTile(tile)]?.layerOverlay?.showHighlight(Color.RED, 0.2f + 0.5f * share)
+        }
     }
 
     private fun WorldMapHolder.updateTilesForSelectedUnit(unitView: MapUnitView) {

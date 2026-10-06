@@ -9,6 +9,7 @@ import com.unciv.logic.civilization.NotificationIcon
 import com.unciv.logic.map.TileCultureLogic
 import com.unciv.logic.map.mapunit.MapUnit
 import com.unciv.logic.map.tile.Tile
+import yairm210.purity.annotations.Readonly
 import kotlin.math.roundToInt
 
 /**
@@ -24,7 +25,7 @@ object FrontResolver {
     /** Name of the only unit type that fights in front mode. */
     const val DIVISION_UNIT_NAME = "Division"
 
-    fun isDivision(unit: MapUnit) = unit.baseUnit.name == DIVISION_UNIT_NAME
+    @Readonly fun isDivision(unit: MapUnit) = unit.baseUnit.name == DIVISION_UNIT_NAME
 
     fun stanceOf(unit: MapUnit) = FrontStance.fromName(unit.frontStance)
 
@@ -32,6 +33,11 @@ object FrontResolver {
     private class Contribution(val unit: MapUnit, val force: Float)
 
     fun resolveRound(gameInfo: GameInfo) {
+        // Without a city there is nothing left to pay, supply or recruit them: the divisions of such a civilization disband
+        for (civ in gameInfo.civilizations)
+            if (civ.cities.isEmpty() && !civ.isBarbarian)
+                civ.units.getCivUnits().filter { isDivision(it) }.toList().forEach { it.destroy() }
+
         val divisions = gameInfo.civilizations.flatMap { civ ->
             if (civ.isDefeated()) emptyList() else civ.units.getCivUnits().filter { isDivision(it) }.toList()
         }

@@ -154,6 +154,10 @@ class ConstructionAutomation(val cityConstructions: CityConstructions) {
 
     private fun addMilitaryUnitChoice() {
         if (city.isColony) return  // TW v2: colonies don't train military units
+        // Front mode: the army follows the size of the economy, war or not
+        if (civInfo.gameInfo.gameParameters.frontMode &&
+            civInfo.units.getCivUnits().count { com.unciv.logic.front.FrontResolver.isDivision(it) } >=
+            com.unciv.logic.front.FrontMath.maxDivisions(civInfo.cities.size)) return
 
         // TW v2 — Cities must always have a garrison.
         //   - City-states: militarised; ungarrisoned → 10× priority and bypass infra gates.

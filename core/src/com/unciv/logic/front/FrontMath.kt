@@ -2,6 +2,7 @@ package com.unciv.logic.front
 
 import kotlin.math.max
 import kotlin.math.min
+import yairm210.purity.annotations.Readonly
 
 /**
  * Front mode: the formulas, kept free of any game state so they can be tested and calibrated on their own.
@@ -33,6 +34,9 @@ object FrontMath {
 
     /** Strength of a full-health division, growing with the era of its civilization. */
     fun baseStrength(eraNumber: Int): Float = 20f * (1f + 0.25f * eraNumber)
+
+    /** Largest army the AI keeps: three divisions per city and two to start with. */
+    @Readonly fun maxDivisions(cityCount: Int): Int = 2 + 3 * cityCount
 
     /** How many contact tiles a division can press at once. */
     fun frontWidth(eraNumber: Int): Int = 3 + eraNumber / 2

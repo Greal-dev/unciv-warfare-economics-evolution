@@ -200,7 +200,12 @@ object Automation {
     fun chooseMilitaryUnit(city: City, availableUnits: Sequence<BaseUnit>): BaseUnit? {
         val rng = city.state.stateBasedRandom("Automation.chooseMilitaryUnit")
         val currentChoice = city.cityConstructions.getCurrentConstruction()
-        if (currentChoice is BaseUnit && !currentChoice.isCivilian()) return currentChoice
+        // Front mode: the army follows the size of the economy, so no division beyond the cap
+        val frontMode = city.civ.gameInfo.gameParameters.frontMode
+        val divisionCapReached = frontMode && city.civ.units.getCivUnits()
+            .count { com.unciv.logic.front.FrontResolver.isDivision(it) } >= com.unciv.logic.front.FrontMath.maxDivisions(city.civ.cities.size)
+        fun isCappedDivision(unit: BaseUnit) = divisionCapReached && unit.name == com.unciv.logic.front.FrontResolver.DIVISION_UNIT_NAME
+        if (currentChoice is BaseUnit && !currentChoice.isCivilian() && !isCappedDivision(currentChoice)) return currentChoice
 
         // if not coastal, removeShips == true so don't even consider ships
         var removeShips = true
@@ -227,8 +232,10 @@ object Automation {
                     } // there is absolutely no reason for you to make water units on this body of water.
         }
 
+        // Front mode: the division is a token that the AI knows how to drive, and cities have no garrison to fill
         val militaryUnits = availableUnits
             .filter { it.isMilitary }
+            .filterNot { isCappedDivision(it) }
             .filterNot { removeShips && it.isWaterUnit }
             .filter { allowSpendingResource(city.civ, it) }
             .filterNot {
@@ -237,14 +244,15 @@ object Automation {
                 // (they're kinda useless compared to investing in battleships or extended-range bombers,
                 // and are obsoleted at Stealth. Excluding units based on their carrying slots being
                 // not needed filters out nuclear submarines and missile cruisers, which is not correct)
-                it.hasUnique(UniqueType.CannotAttack)
+                it.hasUnique(UniqueType.CannotAttack) && !(frontMode && it.name == com.unciv.logic.front.FrontResolver.DIVISION_UNIT_NAME)
             }
             // Only now do we filter out the constructable units because that's a heavier check
             .filter { it.isBuildable(city.cityConstructions) }
             .toList().asSequence()
 
         val chosenUnit: BaseUnit
-        if (!city.civ.isAtWar()
+        if (!frontMode
+                && !city.civ.isAtWar()
                 && city.civ.cities.any { it.getCenterTile().militaryUnit == null }
                 && militaryUnits.any { it.isRanged() } // this is for city defence so get a ranged unit if we can
         ) {

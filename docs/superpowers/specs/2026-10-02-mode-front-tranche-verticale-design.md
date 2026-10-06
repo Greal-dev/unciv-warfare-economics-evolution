@@ -199,3 +199,11 @@ Fonctions pures de résolution testées hors interface, avec le jeu de test exis
 - Réglage de partie `frontMode` (case « Front mode » dans les options avancées de la nouvelle partie), faux par défaut. Hors mode Front, la résolution ne s'exécute pas, la Division n'est pas constructible et le jeu reste celui du fork.
 - En mode Front : seule la Division est constructible parmi les unités terrestres militaires ; la garnison obligatoire de l'IA de construction, la règle « pas de guerre avec une ville sans garnison » et l'usure culturelle de garnison sont désactivées.
 - Hors périmètre de cette étape : la défense de ville par `CityCombatant` (inutilisée, aucune Division n'attaque) et les unités navales et aériennes, inchangées.
+## Première partie IA complète (200 tours, mode Front)
+
+Lancement : `gradlew :desktop:run "--args=--testai=200 --front"` (4 civs IA, 3 cités-États, petite carte).
+- La construction de l'IA écartait la Division (unité « Cannot attack ») : exemption en mode Front, et plus de choix d'unité à distance pour une défense de ville sans garnison.
+- Armée plafonnée à 2 + 3 par ville ; les divisions d'une civilisation sans ville se dissolvent.
+- Un déplacement vers une destination inaccessible (ville ennemie occupée) levait une exception : la marche vise désormais le territoire ennemi le plus proche et l'échec est rattrapé.
+- Surbrillance dans l'interface : zone du jeton sélectionné en cyan, cases pressées en orange, cases sous pression en rouge d'opacité croissante avec la progression.
+- Résultat : des guerres éclatent, des villes changent de main, une civilisation est conquise et disparaît. Restent à examiner : des trésors négatifs chez certaines civilisations et le rôle de la guerre dans la progression de l'ère.

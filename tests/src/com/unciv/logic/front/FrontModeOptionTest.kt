@@ -51,4 +51,14 @@ class FrontModeOptionTest {
         val parameters = com.unciv.models.metadata.GameParameters().apply { frontMode = true }
         assertTrue(parameters.clone().frontMode)
     }
+
+    @Test
+    fun `the divisions of a civilization without cities disband`() {
+        val landless = testGame.addCiv()
+        val unit = testGame.addUnit(FrontResolver.DIVISION_UNIT_NAME, landless, testGame.getTile(HexCoord(2, 0)))
+        val kept = testGame.addUnit(FrontResolver.DIVISION_UNIT_NAME, civ, testGame.getTile(HexCoord(-2, 0)))
+        FrontResolver.resolveRound(testGame.gameInfo)
+        assertFalse(unit.civ.units.getCivUnits().any { FrontResolver.isDivision(it) })
+        assertTrue(kept.civ.units.getCivUnits().any { FrontResolver.isDivision(it) })
+    }
 }

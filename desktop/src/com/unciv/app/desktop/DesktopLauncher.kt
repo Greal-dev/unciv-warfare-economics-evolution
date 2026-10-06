@@ -43,7 +43,7 @@ internal object DesktopLauncher {
         //   --testai=500          → 1 run of 500 turns, Standard speed
         //   --testai=500x3        → 3 runs of 500 turns
         //   --testai=750@Epic     → 1 run of 750 turns at Epic speed
-        //   --testai=1500x2@Marathon
+        //   --testai=1500x2@Marathon\n        //   add --front to play with the front mode option on a smaller map
         val testAiArg = arg.find { it.startsWith("--testai") }
         if (testAiArg != null) {
             val raw = testAiArg.substringAfter("=", "150")
@@ -54,7 +54,7 @@ internal object DesktopLauncher {
             else sizePart to "1"
             val turns = turnsPart.toIntOrNull() ?: 150
             val runs = runsPart.toIntOrNull() ?: 1
-            TestAi.run(turns, runs, speedPart)
+            TestAi.run(turns, runs, speedPart, frontMode = arg.contains("--front"))
             exitProcess(0)
         }
 

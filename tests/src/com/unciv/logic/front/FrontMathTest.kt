@@ -123,6 +123,13 @@ class FrontMathTest {
     }
 
     @Test
+    fun `the army the AI keeps follows the number of cities`() {
+        assertEquals(5, FrontMath.maxDivisions(1))
+        assertEquals(14, FrontMath.maxDivisions(4))
+        assertTrue(FrontMath.maxDivisions(0) > 0)
+    }
+
+    @Test
     fun `unknown stance names fall back to holding the line`() {
         assertEquals(FrontStance.Defensive, FrontStance.fromName(null))
         assertEquals(FrontStance.Defensive, FrontStance.fromName("nonsense"))

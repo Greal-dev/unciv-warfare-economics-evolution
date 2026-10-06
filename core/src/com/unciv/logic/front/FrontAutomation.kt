@@ -71,16 +71,27 @@ object FrontAutomation {
             .minWithOrNull(compareBy({ it.currentTile.aerialDistanceTo(here) }, { it.currentTile.position.x }, { it.currentTile.position.y }))
             ?: return
         if (weak.currentTile.aerialDistanceTo(here) <= 1) return
-        division.movement.headTowards(weak.currentTile)
+        moveToward(division, weak.currentTile)
     }
 
     private fun advanceTowardEnemy(division: MapUnit) {
         val civ = division.civ
-        val target: Tile = civ.getKnownCivs().filter { civ.isAtWarWith(it) }
-            .flatMap { it.cities }
-            .map { it.getCenterTile() }
-            .minWithOrNull(compareBy<Tile>({ it.aerialDistanceTo(division.currentTile) }, { it.position.x }, { it.position.y }))
+        // Head for the enemy territory closest to the token, so a defended city centre is never the destination
+        val here = division.currentTile
+        val enemies = civ.getKnownCivs().filter { civ.isAtWarWith(it) }.toList()
+        val target: Tile = enemies.flatMap { it.cities }.flatMap { it.getTiles() }
+            .filter { !it.isCityCenter() && it.militaryUnit == null }
+            .minWithOrNull(compareBy<Tile>({ it.aerialDistanceTo(here) }, { it.position.x }, { it.position.y }))
             ?: return
-        division.movement.headTowards(target)
+        moveToward(division, target)
+    }
+
+    /** An occupied or unreachable destination, such as a defended city centre, is not an error for an AI move. */
+    private fun moveToward(division: MapUnit, target: Tile) {
+        try {
+            division.movement.headTowards(target)
+        } catch (_: com.unciv.logic.map.mapunit.movement.UnitMovement.UnreachableDestinationException) {
+            // stay where we are, the next round will try again
+        }
     }
 }
