@@ -376,7 +376,7 @@ object DiplomacyAutomation {
         // TW v2 — Don't declare war while any home city is ungarrisoned. Forcing the AI
         // to secure its own perimeter first stops the "war with empty cities" snafu where
         // the player walks in and takes them unopposed.
-        if (civInfo.cities.any { it.getCenterTile().militaryUnit == null }) return
+        if (!civInfo.gameInfo.gameParameters.frontMode && civInfo.cities.any { it.getCenterTile().militaryUnit == null }) return
 
         //evaluate war
         val targetCivs = civInfo.getKnownCivs()

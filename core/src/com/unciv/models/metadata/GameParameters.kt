@@ -32,6 +32,8 @@ class GameParameters : IsPartOfGameInfoSerialization { // Default values are the
     var espionageEnabled = false
     var noStartBias = false
     var shufflePlayerOrder = false
+    /** Front mode: land combat is fought by divisions, tokens with a zone of influence, and cities no longer need garrisons. */
+    var frontMode = false
 
     var victoryTypes: ArrayList<String> = arrayListOf()
     var startingEra = "Ancient era"
@@ -93,6 +95,7 @@ class GameParameters : IsPartOfGameInfoSerialization { // Default values are the
         parameters.espionageEnabled = espionageEnabled
         parameters.noStartBias = noStartBias
         parameters.shufflePlayerOrder = shufflePlayerOrder
+        parameters.frontMode = frontMode
         parameters.victoryTypes = ArrayList(victoryTypes)
         parameters.startingEra = startingEra
         parameters.showCivilizationStats = showCivilizationStats

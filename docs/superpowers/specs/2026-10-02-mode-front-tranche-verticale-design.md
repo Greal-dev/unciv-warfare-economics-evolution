@@ -194,3 +194,8 @@ Fonctions pures de résolution testées hors interface, avec le jeu de test exis
 - Interface : une seule action « Front stance » qui propose les quatre postures, la posture courante est mise en évidence. Les divisions n'ont ni fortification ni sommeil.
 - IA v0 : choix de la posture par ratio de forces et marche vers la ville ennemie la plus proche. Le recrutement reste celui de l'IA existante, la mise à l'échelle sur la longueur du front reste à faire.
 - Reste à faire : surbrillance de la zone et affichage de la progression des cases, neutralisation des mécaniques de garnison, commande de scénario et mesures sur 150 tours.
+## Option de partie et neutralisation de la garnison
+
+- Réglage de partie `frontMode` (case « Front mode » dans les options avancées de la nouvelle partie), faux par défaut. Hors mode Front, la résolution ne s'exécute pas, la Division n'est pas constructible et le jeu reste celui du fork.
+- En mode Front : seule la Division est constructible parmi les unités terrestres militaires ; la garnison obligatoire de l'IA de construction, la règle « pas de guerre avec une ville sans garnison » et l'usure culturelle de garnison sont désactivées.
+- Hors périmètre de cette étape : la défense de ville par `CityCombatant` (inutilisée, aucune Division n'attaque) et les unités navales et aériennes, inchangées.

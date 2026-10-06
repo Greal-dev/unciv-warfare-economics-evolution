@@ -162,7 +162,8 @@ class ConstructionAutomation(val cityConstructions: CityConstructions) {
         // and city-states still get a generic 2× militarism boost.
         val isCityState = civInfo.isCityState
         val isUngarrisoned = city.getCenterTile().militaryUnit == null
-        val needsGarrison = isUngarrisoned && (isCityState || civInfo.isAI())
+        // Front mode: cities are economic centres, divisions on the front protect them
+        val needsGarrison = isUngarrisoned && (isCityState || civInfo.isAI()) && !civInfo.gameInfo.gameParameters.frontMode
 
         val nextTurnGold = civInfo.stats.statsForNextTurn.gold
         val currentGold = civInfo.gold

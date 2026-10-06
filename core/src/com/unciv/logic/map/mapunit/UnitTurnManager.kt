@@ -150,6 +150,8 @@ class UnitTurnManager(val unit: MapUnit) {
      *  [doRebellionAttrition] already covers those with its flat 15 HP/turn. */
     private fun doGarrisonStressAttrition() {
         if (!unit.isMilitary()) return
+        // Front mode: divisions are tokens on a front, not garrisons among the populace
+        if (unit.civ.gameInfo.gameParameters.frontMode) { unit.garrisonStressTurns = 0; return }
         // TW v2 — Naval units don't garrison cities and don't experience cultural friendly/hostile
         // population pressure: they operate at sea, not amongst the populace.
         if (unit.baseUnit.isWaterUnit) { unit.garrisonStressTurns = 0; return }

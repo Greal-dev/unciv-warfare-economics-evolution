@@ -412,7 +412,7 @@ class GameInfo : IsPartOfGameInfoSerialization, HasGameInfoSerializationVersion 
             if (playerIndex == 0) {
                 // Front mode: every civilization has now ended its turn, so all orders are given -
                 // resolve the pressure of the divisions on the front for the whole round at once
-                com.unciv.logic.front.FrontResolver.resolveRound(this@GameInfo)
+                if (gameParameters.frontMode) com.unciv.logic.front.FrontResolver.resolveRound(this@GameInfo)
                 recordRankingStats()
                 turns++
                 if (DebugUtils.SIMULATE_UNTIL_TURN != 0)

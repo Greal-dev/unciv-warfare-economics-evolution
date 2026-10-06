@@ -279,6 +279,13 @@ class BaseUnit : RulesetObject(), INonPerpetualConstruction {
         if (hasUnique(UniqueType.BuildImprovements))
             yield(RejectionReasonType.Unbuildable.toInstance("Workers replaced by gold-purchased improvements"))
 
+        // Front mode: divisions replace the land units that fight, and exist only there
+        if (civ.gameInfo.gameParameters.frontMode) {
+            if (isMilitary && isLandUnit && name != com.unciv.logic.front.FrontResolver.DIVISION_UNIT_NAME)
+                yield(RejectionReasonType.Unbuildable.toInstance("Land units are replaced by divisions in front mode"))
+        } else if (name == com.unciv.logic.front.FrontResolver.DIVISION_UNIT_NAME)
+            yield(RejectionReasonType.Unbuildable.toInstance("Divisions exist only in front mode"))
+
         if ((civ.isCityState || civ.isOneCityChallenger()) && hasUnique(UniqueType.FoundCity, GameContext.IgnoreConditionals))
             yield(RejectionReasonType.NoSettlerForOneCityPlayers.toInstance())
 

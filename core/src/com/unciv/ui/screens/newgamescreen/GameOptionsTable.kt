@@ -127,6 +127,7 @@ class GameOptionsTable(
         ) {
             it.defaults().pad(5f, 0f)
             it.addNoCityRazingCheckbox()
+            it.addFrontModeCheckbox()
             it.addNoBarbariansCheckbox()
             it.addRagingBarbariansCheckbox()
             it.addOneCityChallengeCheckbox()
@@ -176,6 +177,10 @@ class GameOptionsTable(
     private fun Table.addNoCityRazingCheckbox() =
             addCheckbox("No City Razing", gameParameters.noCityRazing)
             { gameParameters.noCityRazing = it }
+
+    private fun Table.addFrontModeCheckbox() =
+            addCheckbox("Front mode", gameParameters.frontMode)
+            { gameParameters.frontMode = it }
 
     private fun Table.addNoBarbariansCheckbox() =
             addCheckbox("No Barbarians", gameParameters.noBarbarians)

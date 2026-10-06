@@ -37,7 +37,7 @@ object UnitAutomation {
         check(!unit.civ.isBarbarian) { "Barbarians is not allowed here." }
 
         // Front mode: a division is a token with a posture, not a unit that attacks
-        if (com.unciv.logic.front.FrontResolver.isDivision(unit)) {
+        if (com.unciv.logic.front.FrontResolver.isDivision(unit) && unit.civ.gameInfo.gameParameters.frontMode) {
             com.unciv.logic.front.FrontAutomation.automate(unit)
             return
         }
