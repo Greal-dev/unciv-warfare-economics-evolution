@@ -64,6 +64,10 @@ class CivInfoStatsForNextTurn(val civInfo: Civilization) {
             // Era-based maintenance: 1 gold per era (0 in Ancient, 1 in Classical, etc.)
             totalMaintenance += eraMaintenancePerUnit.toFloat()
 
+            // Front mode: a division stands on the front by design, its distance from the cities is already
+            // paid by the supply factor of the front, so it owes only the era part
+            if (civInfo.gameInfo.gameParameters.frontMode && com.unciv.logic.front.FrontResolver.isDivision(unit)) continue
+
             // Skip units whose tile hasn't been initialized yet (e.g. during addUnit in tests)
             val unitTile = try { unit.currentTile } catch (_: UninitializedPropertyAccessException) { continue }
 

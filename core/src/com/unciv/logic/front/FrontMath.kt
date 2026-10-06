@@ -35,8 +35,8 @@ object FrontMath {
     /** Strength of a full-health division, growing with the era of its civilization. */
     fun baseStrength(eraNumber: Int): Float = 20f * (1f + 0.25f * eraNumber)
 
-    /** Largest army the AI keeps: three divisions per city and two to start with. */
-    @Readonly fun maxDivisions(cityCount: Int): Int = 2 + 3 * cityCount
+    /** Largest army the AI keeps: two divisions per city and one to start with. */
+    @Readonly fun maxDivisions(cityCount: Int): Int = 1 + 2 * cityCount
 
     /** How many contact tiles a division can press at once. */
     fun frontWidth(eraNumber: Int): Int = 3 + eraNumber / 2
