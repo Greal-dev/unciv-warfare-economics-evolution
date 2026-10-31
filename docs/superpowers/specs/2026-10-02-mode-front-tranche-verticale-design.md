@@ -207,3 +207,8 @@ Lancement : `gradlew :desktop:run "--args=--testai=200 --front"` (4 civs IA, 3 c
 - Un déplacement vers une destination inaccessible (ville ennemie occupée) levait une exception : la marche vise désormais le territoire ennemi le plus proche et l'échec est rattrapé.
 - Surbrillance dans l'interface : zone du jeton sélectionné en cyan, cases pressées en orange, cases sous pression en rouge d'opacité croissante avec la progression.
 - Résultat : des guerres éclatent, des villes changent de main, une civilisation est conquise et disparaît. Restent à examiner : des trésors négatifs chez certaines civilisations et le rôle de la guerre dans la progression de l'ère.
+## Prise des villes et force par technologies militaires
+
+- Une division presse le centre d'une ville ennemie comme une case de contact. Ordre de priorité des cases pressées : divisions ennemies, centres de ville, autres cases. Quand la progression atteint 100, la ville passe en marionnette du vainqueur, comme dans la règle de siège du fork, qui reste en vigueur.
+- Le bonus de ville de +200 % s'applique aux divisions qui tiennent la ville, pas à la milice d'une ville vide. Une ville vide tombe vite devant quelques divisions, une ville défendue exige de la masse.
+- La force d'une division dépend des technologies militaires possédées : niveau militaire = 7 × (technologies militaires acquises ÷ technologies débloquant une unité militaire du ruleset), force = 20 × (1 + 0,25 × niveau). La largeur de front reste liée à l'ère.

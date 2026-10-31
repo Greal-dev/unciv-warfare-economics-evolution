@@ -9,6 +9,7 @@ import com.unciv.logic.civilization.NotificationIcon
 import com.unciv.logic.map.TileCultureLogic
 import com.unciv.logic.map.mapunit.MapUnit
 import com.unciv.logic.map.tile.Tile
+import com.unciv.models.ruleset.Ruleset
 import yairm210.purity.annotations.Readonly
 import kotlin.math.roundToInt
 
@@ -28,6 +29,19 @@ object FrontResolver {
     @Readonly fun isDivision(unit: MapUnit) = unit.baseUnit.name == DIVISION_UNIT_NAME
 
     fun stanceOf(unit: MapUnit) = FrontStance.fromName(unit.frontStance)
+
+    /** Technologies that unlock a military unit, per ruleset: the military technologies of a civilization. */
+    private val militaryTechsByRuleset = java.util.WeakHashMap<Ruleset, Set<String>>()
+
+    private fun militaryTechs(ruleset: Ruleset): Set<String> = militaryTechsByRuleset.getOrPut(ruleset) {
+        ruleset.units.values.filter { it.isMilitary }.flatMap { it.requiredTechs().toList() }.toSet()
+    }
+
+    /** Military level of a civilization, from the military technologies it has researched. */
+    fun militaryLevel(civ: Civilization): Float {
+        val techs = militaryTechs(civ.gameInfo.ruleset)
+        return FrontMath.militaryLevel(techs.count { civ.tech.isResearched(it) }, techs.size)
+    }
 
     /** A share of a tile's force provided by one division. */
     private class Contribution(val unit: MapUnit, val force: Float)
@@ -91,9 +105,16 @@ object FrontResolver {
         val width = FrontMath.frontWidth(civ.getEraNumber())
         return origin.getTilesInDistance(FrontMath.ZONE_RADIUS)
             .filter { isContactTile(it, civ) }
-            .sortedWith(compareBy<Tile>({ if (holdsEnemyDivision(it, civ)) 0 else 1 }, { it.aerialDistanceTo(origin) }, { it.position.x }, { it.position.y }))
+            .sortedWith(compareBy<Tile>({ targetPriority(it, civ) }, { it.aerialDistanceTo(origin) }, { it.position.x }, { it.position.y }))
             .take(width)
             .toList()
+    }
+
+    /** Order in which a division presses its contact tiles: enemy divisions, then enemy cities, then the rest. */
+    private fun targetPriority(tile: Tile, civ: Civilization) = when {
+        holdsEnemyDivision(tile, civ) -> 0
+        tile.isCityCenter() -> 1
+        else -> 2
     }
 
     private fun holdsEnemyDivision(tile: Tile, civ: Civilization): Boolean {
@@ -120,7 +141,7 @@ object FrontResolver {
             val civ = division.civ
             val stance = stanceOf(division)
             val supply = FrontMath.supplyFactor(CombatCostCalculator.computeDistanceFactor(civ, division.currentTile))
-            val total = FrontMath.pressure(division.health, civ.getEraNumber(), stance, supply)
+            val total = FrontMath.pressure(division.health, militaryLevel(civ), stance, supply)
             val perTile = total / tiles.size
             for (tile in tiles)
                 pressures.getOrPut(tile) { LinkedHashMap() }
@@ -135,12 +156,13 @@ object FrontResolver {
         val defenders = divisions
             .filter { it.civ == owner && it.currentTile.aerialDistanceTo(tile) <= FrontMath.ZONE_RADIUS }
             .map {
-                Contribution(it, FrontMath.resistance(it.health, owner.getEraNumber(), stanceOf(it), it.frontEntrenchment))
+                Contribution(it, FrontMath.resistance(it.health, militaryLevel(owner), stanceOf(it), it.frontEntrenchment))
             }
         // Local sympathy only protects a tile that really belongs to the defender
         val sympathy = if (tile.getOwner() == owner) FrontMath.culturalSympathy(TileCultureLogic.getFriendlyShare(tile, owner)) else 0f
         val resistance = FrontMath.tileResistance(
-            defenders.sumOf { it.force.toDouble() }.toFloat(), defenders.isNotEmpty(), tile.getDefensiveBonus(), sympathy
+            defenders.sumOf { it.force.toDouble() }.toFloat(), defenders.isNotEmpty(), tile.getDefensiveBonus(), sympathy,
+            if (tile.isCityCenter() && tile.getOwner() == owner) FrontMath.CITY_DEFENSE_BONUS else 0f
         )
         return Pair(defenders, resistance)
     }
@@ -171,10 +193,21 @@ object FrontResolver {
             val attackerName = tile.frontAttacker ?: continue
             val attacker = gameInfo.civilizations.firstOrNull { it.civName == attackerName } ?: continue
             val previousOwner = tile.getOwner()
-            // A city centre never changes hands directly: the siege rule takes the city once its surroundings fall.
+            // A city is taken by the pressure on its centre, once the attacker is in contact with it.
+            if (tile.isCityCenter() && previousOwner != null) {
+                if (!isContactTile(tile, attacker)) { tile.frontProgress = FrontMath.FLIP_PROGRESS - 1f; continue }
+                val city = tile.getCity() ?: continue
+                tile.frontProgress = 0f
+                tile.frontAttacker = null
+                previousOwner.addNotification("After the pressure of the enemy front, [${city.name}] has fallen to [${attacker.civName}]!",
+                    tile.position, NotificationCategory.War, NotificationIcon.Death)
+                attacker.addNotification("Our front has taken [${city.name}] from [${previousOwner.civName}]!",
+                    tile.position, NotificationCategory.War, NotificationIcon.War)
+                city.puppetCity(attacker)
+                continue
+            }
             // A tile that would not touch the winner's territory waits instead of creating an enclave.
-            val reachable = !tile.isCityCenter() && previousOwner != null &&
-                tile.neighbors.any { it.getOwner() == attacker }
+            val reachable = previousOwner != null && tile.neighbors.any { it.getOwner() == attacker }
             if (!reachable) { tile.frontProgress = FrontMath.FLIP_PROGRESS - 1f; continue }
 
             val city = nearestCity(attacker, tile) ?: continue

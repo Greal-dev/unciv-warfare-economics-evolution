@@ -83,4 +83,43 @@ class FrontContactTest {
         assertTrue(tiles.isNotEmpty())
         assertEquals(testGame.getTile(HexCoord(2, 0)), tiles.first())
     }
+
+    private fun cityOfB() = testGame.getTile(HexCoord(4, 0))
+
+    private fun surround(civ: Civilization, stance: FrontStance, count: Int) {
+        listOf(HexCoord(3, 0), HexCoord(3, 1), HexCoord(4, -1)).take(count).forEach { division(civ, it.x, it.y, stance) }
+    }
+
+    @Test
+    fun `several aggressive divisions in contact take a city by pressure on its centre`() {
+        surround(civA, FrontStance.Aggressive, 3)
+        repeat(80) { FrontResolver.resolveRound(testGame.gameInfo) }
+        assertEquals(civA, cityOfB().getOwner())
+    }
+
+    @Test
+    fun `a city held by a division resists a small assault`() {
+        surround(civA, FrontStance.Aggressive, 3)
+        division(civB, 5, 0, FrontStance.Defensive)
+        repeat(30) { FrontResolver.resolveRound(testGame.gameInfo) }
+        assertEquals(civB, cityOfB().getOwner())
+    }
+
+    @Test
+    fun `the walls of a city add to its defenders and not to an empty city`() {
+        val empty = FrontMath.tileResistance(0f, false, 0f, 0f, FrontMath.CITY_DEFENSE_BONUS)
+        assertEquals(FrontMath.BASE_RESISTANCE, empty, 0.001f)
+        val held = FrontMath.tileResistance(10f, true, 0f, 0f, FrontMath.CITY_DEFENSE_BONUS)
+        assertEquals(30f, held, 0.001f)
+    }
+
+    @Test
+    fun `divisions get stronger with the military technologies researched`() {
+        val before = FrontResolver.militaryLevel(civA)
+        val unlockers = testGame.ruleset.units.values.filter { it.isMilitary }.flatMap { it.requiredTechs().toList() }.toSet()
+        unlockers.forEach { civA.tech.techsResearched.add(it) }
+        val after = FrontResolver.militaryLevel(civA)
+        assertTrue("level must rise from $before to $after", after > before)
+        assertEquals(FrontMath.MAX_MILITARY_LEVEL, after, 0.001f)
+    }
 }

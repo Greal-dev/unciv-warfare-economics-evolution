@@ -21,6 +21,8 @@ object FrontMath {
     const val FLIP_PROGRESS = 100f
     /** Share of the progress kept from one round to the next when nobody presses the tile */
     const val PROGRESS_KEPT_WHEN_IDLE = 0.8f
+    /** Defence bonus of a city centre for the divisions that hold it, as decided for the fork: +200%. */
+    const val CITY_DEFENSE_BONUS = 2f
     /** Inhabitants a city loses when it raises a division. */
     const val DIVISION_POPULATION_COST = 1
     /** Health points lost by each side, on one tile, between equal forces in moderate postures */
@@ -34,8 +36,15 @@ object FrontMath {
     /** Largest effective supply distance at which a division is reinforced */
     const val SUPPLY_DISTANCE_FOR_REINFORCEMENT = 4f
 
-    /** Strength of a full-health division, growing with the era of its civilization. */
-    fun baseStrength(eraNumber: Int): Float = 20f * (1f + 0.25f * eraNumber)
+    /** Military level reached when a civilization owns every military technology of its ruleset. */
+    const val MAX_MILITARY_LEVEL = 7f
+
+    /** Military level from the share of military technologies researched: a gradual climb from 0 to [MAX_MILITARY_LEVEL]. */
+    @Readonly fun militaryLevel(researched: Int, total: Int): Float =
+        if (total <= 0) 0f else MAX_MILITARY_LEVEL * researched.coerceAtMost(total) / total
+
+    /** Strength of a full-health division, growing with the military technologies its civilization owns. */
+    @Readonly fun baseStrength(militaryLevel: Float): Float = 20f * (1f + 0.25f * militaryLevel)
 
     /** Largest army the AI keeps: two divisions per city and one to start with. */
     @Readonly fun maxDivisions(cityCount: Int): Int = 1 + 2 * cityCount
@@ -52,17 +61,21 @@ object FrontMath {
     }
 
     /** Pressure a division exerts, before it is divided between the tiles it presses. */
-    fun pressure(health: Int, eraNumber: Int, stance: FrontStance, supply: Float): Float =
-        health / 100f * baseStrength(eraNumber) * stance.offense * supply
+    fun pressure(health: Int, militaryLevel: Float, stance: FrontStance, supply: Float): Float =
+        health / 100f * baseStrength(militaryLevel) * stance.offense * supply
 
     /** Resistance a division opposes, before the modifiers of the tile. */
-    fun resistance(health: Int, eraNumber: Int, stance: FrontStance, entrenchment: Float): Float =
-        health / 100f * baseStrength(eraNumber) * stance.defense * (1f + entrenchment)
+    fun resistance(health: Int, militaryLevel: Float, stance: FrontStance, entrenchment: Float): Float =
+        health / 100f * baseStrength(militaryLevel) * stance.defense * (1f + entrenchment)
 
     /** Resistance of a tile with the modifiers that belong to the tile and to its population. */
-    fun tileResistance(divisionsResistance: Float, hasDefenders: Boolean, tileDefenseBonus: Float, culturalSympathy: Float): Float {
+    fun tileResistance(
+        divisionsResistance: Float, hasDefenders: Boolean, tileDefenseBonus: Float, culturalSympathy: Float, cityBonus: Float = 0f
+    ): Float {
         val raw = if (hasDefenders) divisionsResistance else BASE_RESISTANCE
-        return raw * (1f + tileDefenseBonus) * (1f + culturalSympathy)
+        // The walls of a city strengthen the divisions that hold it, not the militia of an empty one
+        val city = if (hasDefenders) 1f + cityBonus else 1f
+        return raw * (1f + tileDefenseBonus) * (1f + culturalSympathy) * city
     }
 
     /** Cultural effect on the defender, same bands as the combat sympathy of the fork: +30% from 70%, -30% up to 20%. */

@@ -9,9 +9,14 @@ class FrontMathTest {
     private val delta = 0.001f
 
     @Test
-    fun `base strength and width grow with the era`() {
-        assertEquals(20f, FrontMath.baseStrength(0), delta)
-        assertEquals(30f, FrontMath.baseStrength(2), delta)
+    fun `base strength grows with the military technologies, width with the era`() {
+        assertEquals(20f, FrontMath.baseStrength(0f), delta)
+        assertEquals(30f, FrontMath.baseStrength(2f), delta)
+        assertEquals(20f, FrontMath.baseStrength(FrontMath.militaryLevel(0, 40)), delta)
+        assertEquals(55f, FrontMath.baseStrength(FrontMath.militaryLevel(40, 40)), delta)
+        assertEquals(37.5f, FrontMath.baseStrength(FrontMath.militaryLevel(20, 40)), delta)
+        assertEquals(FrontMath.MAX_MILITARY_LEVEL, FrontMath.militaryLevel(99, 40), delta)
+        assertEquals(0f, FrontMath.militaryLevel(3, 0), delta)
         assertEquals(3, FrontMath.frontWidth(0))
         assertEquals(4, FrontMath.frontWidth(2))
         assertEquals(6, FrontMath.frontWidth(6))
@@ -115,11 +120,11 @@ class FrontMathTest {
 
     @Test
     fun `pressure scales with health, stance and supply`() {
-        val full = FrontMath.pressure(100, 0, FrontStance.Moderate, 1f)
+        val full = FrontMath.pressure(100, 0f, FrontStance.Moderate, 1f)
         assertEquals(20f, full, delta)
-        assertEquals(10f, FrontMath.pressure(50, 0, FrontStance.Moderate, 1f), delta)
-        assertEquals(30f, FrontMath.pressure(100, 0, FrontStance.Aggressive, 1f), delta)
-        assertEquals(0f, FrontMath.pressure(100, 0, FrontStance.Defensive, 1f), delta)
+        assertEquals(10f, FrontMath.pressure(50, 0f, FrontStance.Moderate, 1f), delta)
+        assertEquals(30f, FrontMath.pressure(100, 0f, FrontStance.Aggressive, 1f), delta)
+        assertEquals(0f, FrontMath.pressure(100, 0f, FrontStance.Defensive, 1f), delta)
     }
 
     @Test
