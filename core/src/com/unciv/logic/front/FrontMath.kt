@@ -21,6 +21,8 @@ object FrontMath {
     const val FLIP_PROGRESS = 100f
     /** Share of the progress kept from one round to the next when nobody presses the tile */
     const val PROGRESS_KEPT_WHEN_IDLE = 0.8f
+    /** Inhabitants a city loses when it raises a division. */
+    const val DIVISION_POPULATION_COST = 1
     /** Health points lost by each side, on one tile, between equal forces in moderate postures */
     const val BASE_LOSS = 4f
     /** Entrenchment gained per round spent holding still */

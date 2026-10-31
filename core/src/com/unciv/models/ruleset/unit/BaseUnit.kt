@@ -283,6 +283,10 @@ class BaseUnit : RulesetObject(), INonPerpetualConstruction {
         if (civ.gameInfo.gameParameters.frontMode) {
             if (isMilitary && isLandUnit && name != com.unciv.logic.front.FrontResolver.DIVISION_UNIT_NAME)
                 yield(RejectionReasonType.Unbuildable.toInstance("Land units are replaced by divisions in front mode"))
+            // A division is raised from the population of its city, which must keep at least one inhabitant
+            if (city != null && name == com.unciv.logic.front.FrontResolver.DIVISION_UNIT_NAME &&
+                city.population.population < com.unciv.logic.front.FrontMath.DIVISION_POPULATION_COST + 1)
+                yield(RejectionReasonType.PopulationRequirement.toInstance("Requires at least [${com.unciv.logic.front.FrontMath.DIVISION_POPULATION_COST + 1}] population"))
         } else if (name == com.unciv.logic.front.FrontResolver.DIVISION_UNIT_NAME)
             yield(RejectionReasonType.Unbuildable.toInstance("Divisions exist only in front mode"))
 
@@ -399,6 +403,10 @@ class BaseUnit : RulesetObject(), INonPerpetualConstruction {
                 city.population.addPopulation(-2)
             }
         }
+
+        // Front mode: a division costs population whether it is produced or purchased
+        if (name == com.unciv.logic.front.FrontResolver.DIVISION_UNIT_NAME && civInfo.gameInfo.gameParameters.frontMode)
+            cityConstructions.city.population.addPopulation(-com.unciv.logic.front.FrontMath.DIVISION_POPULATION_COST)
 
         addConstructionBonuses(unit, cityConstructions)
 

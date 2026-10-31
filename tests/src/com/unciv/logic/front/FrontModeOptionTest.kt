@@ -4,6 +4,7 @@ import com.unciv.logic.map.HexCoord
 import com.unciv.models.ruleset.RejectionReasonType
 import com.unciv.testing.BaseTestRunner
 import com.unciv.testing.TestGame
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -60,5 +61,26 @@ class FrontModeOptionTest {
         FrontResolver.resolveRound(testGame.gameInfo)
         assertFalse(unit.civ.units.getCivUnits().any { FrontResolver.isDivision(it) })
         assertTrue(kept.civ.units.getCivUnits().any { FrontResolver.isDivision(it) })
+    }
+
+    private val divisionType get() = testGame.ruleset.units[FrontResolver.DIVISION_UNIT_NAME]!!
+
+    @Test
+    fun `a division costs one inhabitant whether it is produced or bought`() {
+        testGame.gameInfo.gameParameters.frontMode = true
+        city.population.setPopulation(4)
+        divisionType.construct(city.cityConstructions, null)
+        assertEquals(3, city.population.population)
+        divisionType.construct(city.cityConstructions, com.unciv.models.stats.Stat.Gold)
+        assertEquals(2, city.population.population)
+    }
+
+    @Test
+    fun `a city with a single inhabitant cannot raise a division`() {
+        testGame.gameInfo.gameParameters.frontMode = true
+        city.population.setPopulation(1)
+        assertTrue(divisionType.getRejectionReasons(civ, city).any { it.type == RejectionReasonType.PopulationRequirement })
+        city.population.setPopulation(3)
+        assertFalse(divisionType.getRejectionReasons(civ, city).any { it.type == RejectionReasonType.PopulationRequirement })
     }
 }

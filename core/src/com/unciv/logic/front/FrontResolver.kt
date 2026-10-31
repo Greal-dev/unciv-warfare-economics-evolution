@@ -52,8 +52,10 @@ object FrontResolver {
         val pressedTiles = LinkedHashSet<Tile>()
 
         for ((tile, byAttacker) in pressures) {
-            val owner = tile.getOwner() ?: continue
-            val (defenders, resistance) = resistanceOf(tile, owner, divisions)
+            // An enemy division standing on the tile defends it wherever the tile belongs, otherwise its owner does
+            val occupant = tile.militaryUnit?.takeIf { isDivision(it) && it.civ !in byAttacker.keys }?.civ
+            val defenderCiv = occupant ?: tile.getOwner() ?: continue
+            val (defenders, resistance) = resistanceOf(tile, defenderCiv, divisions)
 
             // Several civilizations may press the same tile: only the strongest ratio makes it progress,
             // but all of them take and inflict losses.
@@ -67,7 +69,9 @@ object FrontResolver {
                 accumulateLosses(losses, inContact, contributions, pressure, defenders, resistance)
             }
             pressedTiles += tile
-            if (bestAttacker != null) advance(tile, bestAttacker, bestRatio)
+            // Only a tile that belongs to someone else can change hands: a fight against an intruder just costs troops
+            val tileOwner = tile.getOwner()
+            if (bestAttacker != null && tileOwner != null && tileOwner != bestAttacker) advance(tile, bestAttacker, bestRatio)
         }
 
         clearIdleProgress(gameInfo, pressedTiles)
@@ -87,13 +91,22 @@ object FrontResolver {
         val width = FrontMath.frontWidth(civ.getEraNumber())
         return origin.getTilesInDistance(FrontMath.ZONE_RADIUS)
             .filter { isContactTile(it, civ) }
-            .sortedWith(compareBy<Tile>({ it.aerialDistanceTo(origin) }, { it.position.x }, { it.position.y }))
+            .sortedWith(compareBy<Tile>({ if (holdsEnemyDivision(it, civ)) 0 else 1 }, { it.aerialDistanceTo(origin) }, { it.position.x }, { it.position.y }))
             .take(width)
             .toList()
     }
 
-    /** A tile is in contact for [civ] when an enemy owns it and it touches the territory or a unit of [civ]. */
+    private fun holdsEnemyDivision(tile: Tile, civ: Civilization): Boolean {
+        val occupant = tile.militaryUnit ?: return false
+        return isDivision(occupant) && occupant.civ != civ && civ.isAtWarWith(occupant.civ)
+    }
+
+    /**
+     * A tile is in contact for [civ] when an enemy division stands on it, wherever it belongs, or when an enemy
+     * owns it and it touches the territory or a unit of [civ].
+     */
     fun isContactTile(tile: Tile, civ: Civilization): Boolean {
+        if (holdsEnemyDivision(tile, civ)) return true
         val owner = tile.getOwner() ?: return false
         if (owner == civ || !civ.isAtWarWith(owner)) return false
         return tile.neighbors.any { it.getOwner() == civ || it.militaryUnit?.civ == civ }
@@ -124,7 +137,8 @@ object FrontResolver {
             .map {
                 Contribution(it, FrontMath.resistance(it.health, owner.getEraNumber(), stanceOf(it), it.frontEntrenchment))
             }
-        val sympathy = FrontMath.culturalSympathy(TileCultureLogic.getFriendlyShare(tile, owner))
+        // Local sympathy only protects a tile that really belongs to the defender
+        val sympathy = if (tile.getOwner() == owner) FrontMath.culturalSympathy(TileCultureLogic.getFriendlyShare(tile, owner)) else 0f
         val resistance = FrontMath.tileResistance(
             defenders.sumOf { it.force.toDouble() }.toFloat(), defenders.isNotEmpty(), tile.getDefensiveBonus(), sympathy
         )
@@ -233,6 +247,10 @@ object FrontResolver {
                 continue
             }
             val stance = stanceOf(division)
+            // Tell a human player why an offensive does nothing
+            if (stance.presses && division.civ.isHuman() && pressedTilesOf(division).isEmpty())
+                division.civ.addNotification("Our [${division.name}] has no enemy tile or division within reach of its zone.",
+                    division.currentTile.position, NotificationCategory.War, NotificationIcon.War)
             val moved = division.frontAnchor != division.currentTile.position
             division.frontEntrenchment = FrontMath.nextEntrenchment(division.frontEntrenchment, stance, moved)
             division.frontAnchor = division.currentTile.position
