@@ -74,8 +74,38 @@ object FrontResolver {
             }
     }
 
+    /**
+     * When the city that raised a division is lost, the citizen it occupied moves to another city of the same
+     * civilization, the one with the most citizens to spare. A division that no city can support disbands.
+     */
+    private fun rehomeOrphans(gameInfo: GameInfo) {
+        for (civ in gameInfo.civilizations) {
+            if (civ.cities.isEmpty()) continue
+            val orphans = civ.units.getCivUnits().filter { unit ->
+                isDivision(unit) && unit.frontHomeCityId != null && civ.cities.none { it.id == unit.frontHomeCityId }
+            }.toList()
+            for (division in orphans) {
+                val host = civ.cities.filter { workersAvailable(it) >= FrontMath.MIN_CITIZENS_AT_WORK + 1 }
+                    .sortedWith(compareBy<City>({ -workersAvailable(it) }, { it.name }))
+                    .firstOrNull()
+                if (host == null) {
+                    civ.addNotification("Our [${division.name}] has disbanded: no city can spare a citizen for it.",
+                        division.currentTile.position, NotificationCategory.War, NotificationIcon.Death)
+                    division.destroy()
+                    continue
+                }
+                division.frontHomeCityId = host.id
+                host.population.unassignExtraPopulation()
+                host.cityStats.update()
+                civ.addNotification("Our [${division.name}] is now supported by [${host.name}].",
+                    division.currentTile.position, NotificationCategory.War, NotificationIcon.War)
+            }
+        }
+    }
+
     fun resolveRound(gameInfo: GameInfo) {
         purgeRetiredUnits(gameInfo)
+        rehomeOrphans(gameInfo)
         // Without a city there is nothing left to pay, supply or recruit them: the divisions of such a civilization disband
         for (civ in gameInfo.civilizations)
             if (civ.cities.isEmpty() && !civ.isBarbarian)

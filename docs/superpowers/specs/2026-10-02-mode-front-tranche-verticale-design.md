@@ -220,3 +220,4 @@ Lancement : `gradlew :desktop:run "--args=--testai=200 --front"` (4 civs IA, 3 c
 - Une division ne coûte plus d'habitant : elle occupe un citoyen de sa ville, qui cesse de travailler. Une ville garde au moins un citoyen au travail. L'action « Front burden » reporte la charge sur une autre ville. Le citoyen est libéré quand la division disparaît.
 - Les unités terrestres de combat qui ne sont plus produites sont retirées des files de production des villes à chaque tour de front.
 - Icônes : soldat (Infantry), cavalier (Knight), char (Tank), copiées sous les noms des divisions.
+- Ville perdue : à chaque tour de front, les divisions dont la ville d'origine n'appartient plus à la civilisation sont reprises par les autres villes, en commençant par celle qui a le plus de citoyens disponibles. Une division qu'aucune ville ne peut supporter se dissout, avec une notification.

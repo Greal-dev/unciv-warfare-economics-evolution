@@ -108,4 +108,26 @@ class FrontModeOptionTest {
         FrontResolver.resolveRound(testGame.gameInfo)
         assertFalse(city.cityConstructions.constructionQueue.contains("Warrior"))
     }
+
+    @Test
+    fun `when its city is lost a division is supported by another city of the civilization`() {
+        testGame.gameInfo.gameParameters.frontMode = true
+        val other = testGame.addCity(civ, testGame.getTile(HexCoord(3, 0)))
+        other.population.setPopulation(4)
+        val unit = testGame.addUnit(FrontResolver.DIVISION_UNIT_NAME, civ, testGame.getTile(HexCoord(1, 0)))
+        unit.frontHomeCityId = "a-city-that-no-longer-exists"
+        FrontResolver.resolveRound(testGame.gameInfo)
+        assertEquals(other.id, unit.frontHomeCityId)
+        assertEquals(3, FrontResolver.workersAvailable(other))
+    }
+
+    @Test
+    fun `a division that no remaining city can support disbands`() {
+        testGame.gameInfo.gameParameters.frontMode = true
+        city.population.setPopulation(1)
+        val unit = testGame.addUnit(FrontResolver.DIVISION_UNIT_NAME, civ, testGame.getTile(HexCoord(1, 0)))
+        unit.frontHomeCityId = "a-city-that-no-longer-exists"
+        FrontResolver.resolveRound(testGame.gameInfo)
+        assertFalse(civ.units.getCivUnits().any { FrontResolver.isDivision(it) })
+    }
 }
