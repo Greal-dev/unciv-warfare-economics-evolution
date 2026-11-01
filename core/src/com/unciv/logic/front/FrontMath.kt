@@ -23,8 +23,8 @@ object FrontMath {
     const val PROGRESS_KEPT_WHEN_IDLE = 0.8f
     /** Defence bonus of a city centre for the divisions that hold it, as decided for the fork: +200%. */
     const val CITY_DEFENSE_BONUS = 2f
-    /** Inhabitants a city loses when it raises a division. */
-    const val DIVISION_POPULATION_COST = 1
+    /** Citizens a city keeps at work: divisions are raised from the rest of its population. */
+    const val MIN_CITIZENS_AT_WORK = 1
     /** Health points lost by each side, on one tile, between equal forces in moderate postures */
     const val BASE_LOSS = 4f
     /** Entrenchment gained per round spent holding still */
@@ -61,12 +61,13 @@ object FrontMath {
     }
 
     /** Pressure a division exerts, before it is divided between the tiles it presses. */
-    fun pressure(health: Int, militaryLevel: Float, stance: FrontStance, supply: Float): Float =
-        health / 100f * baseStrength(militaryLevel) * stance.offense * supply
+    fun pressure(health: Int, militaryLevel: Float, stance: FrontStance, supply: Float, kind: DivisionKind = DivisionKind.Infantry): Float =
+        health / 100f * baseStrength(militaryLevel) * stance.offense * kind.offenseFactor(stance) * supply
 
     /** Resistance a division opposes, before the modifiers of the tile. */
-    fun resistance(health: Int, militaryLevel: Float, stance: FrontStance, entrenchment: Float): Float =
-        health / 100f * baseStrength(militaryLevel) * stance.defense * (1f + entrenchment)
+    fun resistance(
+        health: Int, militaryLevel: Float, stance: FrontStance, entrenchment: Float, kind: DivisionKind = DivisionKind.Infantry
+    ): Float = health / 100f * baseStrength(militaryLevel) * stance.defense * kind.defenseFactor(stance) * (1f + entrenchment)
 
     /** Resistance of a tile with the modifiers that belong to the tile and to its population. */
     fun tileResistance(

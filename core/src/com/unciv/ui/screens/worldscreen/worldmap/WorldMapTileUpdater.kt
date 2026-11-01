@@ -77,6 +77,13 @@ object WorldMapTileUpdater {
                 tileGroups[tileMapView.getTile(tile)]?.layerOverlay?.showHighlight(Color.CYAN, 0.15f)
             for (tile in com.unciv.logic.front.FrontResolver.pressedTilesOf(division))
                 tileGroups[tileMapView.getTile(tile)]?.layerOverlay?.showHighlight(Color.ORANGE, 0.4f)
+            // While choosing targets, every tile the division could press is offered in gold, the chosen ones in yellow
+            if (worldScreen.bottomUnitTable.selectedUnitIsFrontTargeting)
+                for (tile in division.currentTile.getTilesInDistance(com.unciv.logic.front.FrontMath.ZONE_RADIUS)
+                    .filter { com.unciv.logic.front.FrontResolver.isContactTile(it, division.civ) })
+                    tileGroups[tileMapView.getTile(tile)]?.layerOverlay?.showHighlight(Color.GOLD, 0.35f)
+            for (tile in com.unciv.logic.front.FrontResolver.validTargets(division))
+                tileGroups[tileMapView.getTile(tile)]?.layerOverlay?.showHighlight(Color.YELLOW, 0.75f)
         }
         for (tile in worldScreen.gameInfo.tileMap.values) {
             if (tile.frontProgress <= 0f || !viewer.hasExplored(tile)) continue

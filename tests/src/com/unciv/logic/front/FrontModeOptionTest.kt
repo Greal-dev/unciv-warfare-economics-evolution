@@ -66,21 +66,46 @@ class FrontModeOptionTest {
     private val divisionType get() = testGame.ruleset.units[FrontResolver.DIVISION_UNIT_NAME]!!
 
     @Test
-    fun `a division costs one inhabitant whether it is produced or bought`() {
+    fun `a division occupies a citizen of its city whether it is produced or bought`() {
         testGame.gameInfo.gameParameters.frontMode = true
-        city.population.setPopulation(4)
+        city.population.setPopulation(5)
+        assertEquals(5, FrontResolver.workersAvailable(city))
         divisionType.construct(city.cityConstructions, null)
-        assertEquals(3, city.population.population)
+        assertEquals(4, FrontResolver.workersAvailable(city))
         divisionType.construct(city.cityConstructions, com.unciv.models.stats.Stat.Gold)
-        assertEquals(2, city.population.population)
+        assertEquals(3, FrontResolver.workersAvailable(city))
+        assertEquals(5, city.population.population)
     }
 
     @Test
-    fun `a city with a single inhabitant cannot raise a division`() {
+    fun `a city keeps at least one citizen at work`() {
         testGame.gameInfo.gameParameters.frontMode = true
-        city.population.setPopulation(1)
-        assertTrue(divisionType.getRejectionReasons(civ, city).any { it.type == RejectionReasonType.PopulationRequirement })
-        city.population.setPopulation(3)
+        city.population.setPopulation(2)
         assertFalse(divisionType.getRejectionReasons(civ, city).any { it.type == RejectionReasonType.PopulationRequirement })
+        divisionType.construct(city.cityConstructions, null)
+        assertTrue(divisionType.getRejectionReasons(civ, city).any { it.type == RejectionReasonType.PopulationRequirement })
+    }
+
+    @Test
+    fun `the burden of a division can be moved to another city`() {
+        testGame.gameInfo.gameParameters.frontMode = true
+        val other = testGame.addCity(civ, testGame.getTile(HexCoord(3, 0)))
+        city.population.setPopulation(4)
+        other.population.setPopulation(4)
+        val unit = divisionType.construct(city.cityConstructions, null)!!
+        assertEquals(3, FrontResolver.workersAvailable(city))
+        assertTrue(FrontResolver.burdenCandidates(unit).contains(other))
+        FrontResolver.reassignBurden(unit, other)
+        assertEquals(4, FrontResolver.workersAvailable(city))
+        assertEquals(3, FrontResolver.workersAvailable(other))
+    }
+
+    @Test
+    fun `land units that are no longer produced leave the production queues`() {
+        testGame.gameInfo.gameParameters.frontMode = true
+        city.cityConstructions.constructionQueue.clear()
+        city.cityConstructions.constructionQueue.add("Warrior")
+        FrontResolver.resolveRound(testGame.gameInfo)
+        assertFalse(city.cityConstructions.constructionQueue.contains("Warrior"))
     }
 }

@@ -281,13 +281,13 @@ class BaseUnit : RulesetObject(), INonPerpetualConstruction {
 
         // Front mode: divisions replace the land units that fight, and exist only there
         if (civ.gameInfo.gameParameters.frontMode) {
-            if (isMilitary && isLandUnit && name != com.unciv.logic.front.FrontResolver.DIVISION_UNIT_NAME)
+            if (isMilitary && isLandUnit && !com.unciv.logic.front.FrontResolver.isDivisionName(name))
                 yield(RejectionReasonType.Unbuildable.toInstance("Land units are replaced by divisions in front mode"))
-            // A division is raised from the population of its city, which must keep at least one inhabitant
-            if (city != null && name == com.unciv.logic.front.FrontResolver.DIVISION_UNIT_NAME &&
-                city.population.population < com.unciv.logic.front.FrontMath.DIVISION_POPULATION_COST + 1)
-                yield(RejectionReasonType.PopulationRequirement.toInstance("Requires at least [${com.unciv.logic.front.FrontMath.DIVISION_POPULATION_COST + 1}] population"))
-        } else if (name == com.unciv.logic.front.FrontResolver.DIVISION_UNIT_NAME)
+            // A division occupies a citizen who stops working, and the city must keep at least one at work
+            if (city != null && com.unciv.logic.front.FrontResolver.isDivisionName(name) &&
+                com.unciv.logic.front.FrontResolver.workersAvailable(city) < com.unciv.logic.front.FrontMath.MIN_CITIZENS_AT_WORK + 1)
+                yield(RejectionReasonType.PopulationRequirement.toInstance("Requires a citizen who can leave work"))
+        } else if (com.unciv.logic.front.FrontResolver.isDivisionName(name))
             yield(RejectionReasonType.Unbuildable.toInstance("Divisions exist only in front mode"))
 
         if ((civ.isCityState || civ.isOneCityChallenger()) && hasUnique(UniqueType.FoundCity, GameContext.IgnoreConditionals))
@@ -404,9 +404,13 @@ class BaseUnit : RulesetObject(), INonPerpetualConstruction {
             }
         }
 
-        // Front mode: a division costs population whether it is produced or purchased
-        if (name == com.unciv.logic.front.FrontResolver.DIVISION_UNIT_NAME && civInfo.gameInfo.gameParameters.frontMode)
-            cityConstructions.city.population.addPopulation(-com.unciv.logic.front.FrontMath.DIVISION_POPULATION_COST)
+        // Front mode: a division occupies one citizen of the city that raised it, who stops working
+        if (com.unciv.logic.front.FrontResolver.isDivisionName(name) && civInfo.gameInfo.gameParameters.frontMode) {
+            val city = cityConstructions.city
+            unit.frontHomeCityId = city.id
+            city.population.unassignExtraPopulation()
+            city.cityStats.update()
+        }
 
         addConstructionBonuses(unit, cityConstructions)
 

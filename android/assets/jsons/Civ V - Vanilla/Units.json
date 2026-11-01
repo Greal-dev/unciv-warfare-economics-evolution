@@ -42,7 +42,35 @@
 		"uniques": ["Cannot attack"],
 		"attackSound": "nonmetalhit",
 		"civilopediaText": [
-			{"text": "Front mode: a token whose zone of influence presses on the enemy territory around it. Choose its stance, and move it to direct the effort. It does not attack individual units."}
+			{"text": "Front mode: infantry division, a token whose zone of influence presses on the enemy territory around it. Choose its stance, designate the tiles it presses, and move it to direct the effort. It holds a line well. It occupies one citizen of its city."}
+		]
+	},
+	{
+		"name": "Cavalry Division",
+		"unitType": "Mounted",
+		"movement": 3,
+		"strength": 20,
+		"cost": 90,
+		"requiredTech": "Horseback Riding",
+		"requiredResource": "Horses",
+		"uniques": ["Cannot attack"],
+		"attackSound": "nonmetalhit",
+		"civilopediaText": [
+			{"text": "Front mode: cavalry division. Very effective in the aggressive offensive and in strategic withdrawal, poor at holding a line. Consumes one Horses. It occupies one citizen of its city."}
+		]
+	},
+	{
+		"name": "Armored Division",
+		"unitType": "Armored",
+		"movement": 4,
+		"strength": 20,
+		"cost": 120,
+		"requiredTech": "Combustion",
+		"requiredResource": "Oil",
+		"uniques": ["Cannot attack"],
+		"attackSound": "nonmetalhit",
+		"civilopediaText": [
+			{"text": "Front mode: armored division. Devastating in the aggressive offensive and in strategic withdrawal, poor at holding a line. Consumes one Oil. It occupies one citizen of its city."}
 		]
 	},	{
 		"name": "Warrior",

@@ -122,4 +122,33 @@ class FrontContactTest {
         assertTrue("level must rise from $before to $after", after > before)
         assertEquals(FrontMath.MAX_MILITARY_LEVEL, after, 0.001f)
     }
+
+    @Test
+    fun `designated tiles replace the automatic choice and concentrate the force`() {
+        val attacker = division(civA, 1, 0, FrontStance.Aggressive)
+        val automatic = FrontResolver.pressedTilesOf(attacker)
+        assertTrue("automatic choice: $automatic", automatic.size > 1)
+        val chosen = automatic.first()
+        FrontResolver.toggleTarget(attacker, chosen)
+        assertEquals(listOf(chosen), FrontResolver.pressedTilesOf(attacker))
+        FrontResolver.toggleTarget(attacker, chosen)
+        assertEquals(automatic, FrontResolver.pressedTilesOf(attacker))
+    }
+
+    @Test
+    fun `a designated tile out of contact is refused`() {
+        val attacker = division(civA, 0, 0, FrontStance.Aggressive)
+        FrontResolver.toggleTarget(attacker, testGame.getTile(HexCoord(-3, 0)))
+        assertTrue(attacker.frontTargets.isEmpty())
+    }
+
+    @Test
+    fun `a single designated tile draws the whole pressure of the division`() {
+        val attacker = division(civA, 1, 0, FrontStance.Aggressive)
+        val chosen = FrontResolver.pressedTilesOf(attacker).first()
+        FrontResolver.toggleTarget(attacker, chosen)
+        FrontResolver.resolveRound(testGame.gameInfo)
+        val pressed = testGame.tileMap.values.filter { it.frontProgress > 0f }
+        assertTrue(pressed.all { it == chosen })
+    }
 }

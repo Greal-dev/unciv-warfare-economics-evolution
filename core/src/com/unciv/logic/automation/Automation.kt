@@ -204,7 +204,7 @@ object Automation {
         val frontMode = city.civ.gameInfo.gameParameters.frontMode
         val divisionCapReached = frontMode && city.civ.units.getCivUnits()
             .count { com.unciv.logic.front.FrontResolver.isDivision(it) } >= com.unciv.logic.front.FrontMath.maxDivisions(city.civ.cities.size)
-        fun isCappedDivision(unit: BaseUnit) = divisionCapReached && unit.name == com.unciv.logic.front.FrontResolver.DIVISION_UNIT_NAME
+        fun isCappedDivision(unit: BaseUnit) = divisionCapReached && com.unciv.logic.front.FrontResolver.isDivisionName(unit.name)
         if (currentChoice is BaseUnit && !currentChoice.isCivilian() && !isCappedDivision(currentChoice)) return currentChoice
 
         // if not coastal, removeShips == true so don't even consider ships
@@ -244,7 +244,7 @@ object Automation {
                 // (they're kinda useless compared to investing in battleships or extended-range bombers,
                 // and are obsoleted at Stealth. Excluding units based on their carrying slots being
                 // not needed filters out nuclear submarines and missile cruisers, which is not correct)
-                it.hasUnique(UniqueType.CannotAttack) && !(frontMode && it.name == com.unciv.logic.front.FrontResolver.DIVISION_UNIT_NAME)
+                it.hasUnique(UniqueType.CannotAttack) && !(frontMode && com.unciv.logic.front.FrontResolver.isDivisionName(it.name))
             }
             // Only now do we filter out the constructable units because that's a heavier check
             .filter { it.isBuildable(city.cityConstructions) }

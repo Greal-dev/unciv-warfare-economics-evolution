@@ -142,6 +142,10 @@ class MapUnit : IsPartOfGameInfoSerialization {
 
     /** Front mode: tile the division stood on at the previous resolution, to detect that it moved. */
     var frontAnchor: HexCoord? = null
+    /** Tiles the player asked this division to press. Empty means the division picks its own contact tiles. */
+    var frontTargets: ArrayList<HexCoord> = ArrayList()
+    /** Id of the city that raised this division: its citizens stop working while the division exists. */
+    var frontHomeCityId: String? = null
 
     /** TW v2: turns this unit has been garrisoned on a culturally hostile tile (friendly share < 70%).
      *  After 15 such turns, the unit starts taking attrition damage (up to 30 HP/turn) unless the
@@ -274,6 +278,8 @@ class MapUnit : IsPartOfGameInfoSerialization {
         toReturn.frontStance = frontStance
         toReturn.frontEntrenchment = frontEntrenchment
         toReturn.frontAnchor = frontAnchor
+        toReturn.frontTargets = ArrayList(frontTargets)
+        toReturn.frontHomeCityId = frontHomeCityId
         return toReturn
     }
 

@@ -82,6 +82,8 @@ class UnitTable(val worldScreen: WorldScreen) : Table() {
 
     var selectedUnitIsConnectingRoad by unitPresenter::selectedUnitIsConnectingRoad
 
+    var selectedUnitIsFrontTargeting by unitPresenter::selectedUnitIsFrontTargeting
+
     var nameLabelText: String
         get() = unitNameLabel.text.toString()
         set(value) {

@@ -11,6 +11,13 @@ class BaseUnitCost(val baseUnit: BaseUnit) {
 
     @Readonly
     fun getProductionCost(civInfo: Civilization, city: City?): Int {
+        // Front mode: a division always takes the same number of turns, whatever the production of its city
+        if (city != null && civInfo.gameInfo.gameParameters.frontMode) {
+            val kind = com.unciv.logic.front.DivisionKind.fromUnitName(baseUnit.name)
+            if (kind != null)
+                return (city.cityStats.currentCityStats.production.coerceAtLeast(1f) * kind.buildTurns).toInt().coerceAtLeast(kind.buildTurns)
+        }
+
         var productionCost = baseUnit.cost.toFloat()
 
         val stateForConditionals = city?.state ?: civInfo.state

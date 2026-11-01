@@ -44,7 +44,8 @@ class CityPopulationManager : IsPartOfGameInfoSerialization {
     @Readonly
     fun getFreePopulation(): Int {
         val workingPopulation = city.getWorkedTiles().count()
-        return population - workingPopulation - getNumberOfSpecialists()
+        // Front mode: each division raised by this city occupies a citizen who no longer works
+        return population - workingPopulation - getNumberOfSpecialists() - com.unciv.logic.front.FrontResolver.divisionsBoundTo(city)
     }
     
     @Readonly

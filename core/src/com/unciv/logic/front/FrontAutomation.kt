@@ -24,12 +24,16 @@ object FrontAutomation {
      * Posture for a ratio of own force to the force expected in front, and the health of the division.
      * @param previous posture of the previous round, used to rest until [REST_UNTIL] once out of contact
      */
-    fun chooseStance(ratio: Float, health: Int, inContact: Boolean, previous: FrontStance = FrontStance.Defensive): FrontStance = when {
+    fun chooseStance(
+        ratio: Float, health: Int, inContact: Boolean, previous: FrontStance = FrontStance.Defensive, kind: DivisionKind = DivisionKind.Infantry
+    ): FrontStance = when {
         inContact && health < RELIEVE_BELOW -> FrontStance.Withdrawal
         !inContact && health < FIT_FOR_OFFENSIVE -> FrontStance.Defensive // rest and be reinforced
         !inContact && health < REST_UNTIL && !previous.presses -> FrontStance.Defensive
-        ratio > 2f && health >= FIT_FOR_OFFENSIVE -> FrontStance.Aggressive
-        ratio > 1.2f -> FrontStance.Moderate
+        ratio > (if (kind.isMobile) 1.5f else 2f) && health >= FIT_FOR_OFFENSIVE -> FrontStance.Aggressive
+        ratio > (if (kind.isMobile) 1.0f else 1.2f) -> FrontStance.Moderate
+        // Mobile divisions cannot hold a line: when outmatched in contact they fall back instead
+        kind.isMobile && inContact -> FrontStance.Withdrawal
         else -> FrontStance.Defensive
     }
 
@@ -54,7 +58,7 @@ object FrontAutomation {
 
         val contact = division.currentTile.getTilesInDistance(FrontMath.ZONE_RADIUS)
             .any { FrontResolver.isContactTile(it, civ) }
-        val stance = chooseStance(own / expected, division.health, contact, FrontResolver.stanceOf(division))
+        val stance = chooseStance(own / expected, division.health, contact, FrontResolver.stanceOf(division), FrontResolver.kindOf(division))
         division.frontStance = stance.name
 
         if (!contact && stance != FrontStance.Defensive) advanceTowardEnemy(division)

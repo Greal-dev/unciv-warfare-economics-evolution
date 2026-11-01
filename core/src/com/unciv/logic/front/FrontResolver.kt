@@ -10,6 +10,7 @@ import com.unciv.logic.map.TileCultureLogic
 import com.unciv.logic.map.mapunit.MapUnit
 import com.unciv.logic.map.tile.Tile
 import com.unciv.models.ruleset.Ruleset
+import com.unciv.models.ruleset.unit.BaseUnit
 import yairm210.purity.annotations.Readonly
 import kotlin.math.roundToInt
 
@@ -26,7 +27,21 @@ object FrontResolver {
     /** Name of the only unit type that fights in front mode. */
     const val DIVISION_UNIT_NAME = "Division"
 
-    @Readonly fun isDivision(unit: MapUnit) = unit.baseUnit.name == DIVISION_UNIT_NAME
+    @Readonly fun isDivision(unit: MapUnit) = DivisionKind.fromUnitName(unit.baseUnit.name) != null
+
+    @Readonly fun isDivisionName(unitName: String) = DivisionKind.fromUnitName(unitName) != null
+
+    @Readonly fun kindOf(unit: MapUnit): DivisionKind = DivisionKind.fromUnitName(unit.baseUnit.name) ?: DivisionKind.Infantry
+
+    /** Citizens of [city] who are neither specialists nor occupied by a division. */
+    @Readonly fun workersAvailable(city: City): Int =
+        city.population.population - city.population.getNumberOfSpecialists() - divisionsBoundTo(city)
+
+    /** Divisions raised by [city], each one a citizen who no longer works. */
+    @Readonly fun divisionsBoundTo(city: City): Int {
+        if (!city.civ.gameInfo.gameParameters.frontMode) return 0
+        return city.civ.units.getCivUnits().count { isDivision(it) && it.frontHomeCityId == city.id }
+    }
 
     fun stanceOf(unit: MapUnit) = FrontStance.fromName(unit.frontStance)
 
@@ -46,11 +61,29 @@ object FrontResolver {
     /** A share of a tile's force provided by one division. */
     private class Contribution(val unit: MapUnit, val force: Float)
 
+    /** Land units other than divisions are no longer produced in front mode: they leave the production queues of the cities. */
+    private fun purgeRetiredUnits(gameInfo: GameInfo) {
+        for (civ in gameInfo.civilizations)
+            for (city in civ.cities) {
+                val constructions = city.cityConstructions
+                for (index in constructions.constructionQueue.indices.reversed()) {
+                    val construction = constructions.getConstruction(constructions.constructionQueue[index])
+                    if (construction is BaseUnit && construction.isMilitary && construction.isLandUnit && !isDivisionName(construction.name))
+                        constructions.removeFromQueue(index, true)
+                }
+            }
+    }
+
     fun resolveRound(gameInfo: GameInfo) {
+        purgeRetiredUnits(gameInfo)
         // Without a city there is nothing left to pay, supply or recruit them: the divisions of such a civilization disband
         for (civ in gameInfo.civilizations)
             if (civ.cities.isEmpty() && !civ.isBarbarian)
                 civ.units.getCivUnits().filter { isDivision(it) }.toList().forEach { it.destroy() }
+        // Citizens freed by lost divisions go back to work
+        for (civ in gameInfo.civilizations)
+            for (city in civ.cities)
+                if (city.population.getFreePopulation() > 0) city.shouldReassignPopulation = true
 
         val divisions = gameInfo.civilizations.flatMap { civ ->
             if (civ.isDefeated()) emptyList() else civ.units.getCivUnits().filter { isDivision(it) }.toList()
@@ -103,11 +136,46 @@ object FrontResolver {
         val civ = division.civ
         val origin = division.currentTile
         val width = FrontMath.frontWidth(civ.getEraNumber())
+        // Tiles chosen by the player come first: the whole force goes to them, concentrated on one or spread over several
+        val chosen = validTargets(division)
+        if (chosen.isNotEmpty()) return chosen.take(width)
         return origin.getTilesInDistance(FrontMath.ZONE_RADIUS)
             .filter { isContactTile(it, civ) }
             .sortedWith(compareBy<Tile>({ targetPriority(it, civ) }, { it.aerialDistanceTo(origin) }, { it.position.x }, { it.position.y }))
             .take(width)
             .toList()
+    }
+
+    /** Adds or removes [tile] from the tiles the player wants the division to press. A tile out of reach or out of contact is refused. */
+    fun toggleTarget(division: MapUnit, tile: Tile) {
+        if (division.frontTargets.remove(tile.position)) return
+        if (tile.aerialDistanceTo(division.currentTile) <= FrontMath.ZONE_RADIUS && isContactTile(tile, division.civ))
+            division.frontTargets.add(tile.position)
+    }
+
+    /** Cities that can take the citizen a division occupies, the current one included. */
+    fun burdenCandidates(division: MapUnit): List<City> = division.civ.cities.filter {
+        it.id == division.frontHomeCityId || workersAvailable(it) >= FrontMath.MIN_CITIZENS_AT_WORK + 1
+    }
+
+    /** Moves the citizen a division occupies to another city of its civilization. */
+    fun reassignBurden(division: MapUnit, city: City) {
+        if (division.frontHomeCityId == city.id) return
+        val previous = division.civ.cities.firstOrNull { it.id == division.frontHomeCityId }
+        division.frontHomeCityId = city.id
+        city.population.unassignExtraPopulation()
+        city.cityStats.update()
+        previous?.shouldReassignPopulation = true
+    }
+
+    /** The tiles the player designated that are still in reach and in contact. */
+    fun validTargets(division: MapUnit): List<Tile> {
+        if (division.frontTargets.isEmpty()) return emptyList()
+        val civ = division.civ
+        val origin = division.currentTile
+        return division.frontTargets.mapNotNull { civ.gameInfo.tileMap.getOrNull(it.x, it.y) }
+            .filter { it.aerialDistanceTo(origin) <= FrontMath.ZONE_RADIUS && isContactTile(it, civ) }
+            .sortedWith(compareBy<Tile>({ it.aerialDistanceTo(origin) }, { it.position.x }, { it.position.y }))
     }
 
     /** Order in which a division presses its contact tiles: enemy divisions, then enemy cities, then the rest. */
@@ -141,7 +209,7 @@ object FrontResolver {
             val civ = division.civ
             val stance = stanceOf(division)
             val supply = FrontMath.supplyFactor(CombatCostCalculator.computeDistanceFactor(civ, division.currentTile))
-            val total = FrontMath.pressure(division.health, militaryLevel(civ), stance, supply)
+            val total = FrontMath.pressure(division.health, militaryLevel(civ), stance, supply, kindOf(division))
             val perTile = total / tiles.size
             for (tile in tiles)
                 pressures.getOrPut(tile) { LinkedHashMap() }
@@ -156,7 +224,7 @@ object FrontResolver {
         val defenders = divisions
             .filter { it.civ == owner && it.currentTile.aerialDistanceTo(tile) <= FrontMath.ZONE_RADIUS }
             .map {
-                Contribution(it, FrontMath.resistance(it.health, militaryLevel(owner), stanceOf(it), it.frontEntrenchment))
+                Contribution(it, FrontMath.resistance(it.health, militaryLevel(owner), stanceOf(it), it.frontEntrenchment, kindOf(it)))
             }
         // Local sympathy only protects a tile that really belongs to the defender
         val sympathy = if (tile.getOwner() == owner) FrontMath.culturalSympathy(TileCultureLogic.getFriendlyShare(tile, owner)) else 0f
@@ -221,6 +289,11 @@ object FrontResolver {
         }
     }
 
+    /** The citizen occupied by a division starts working again at the next reassignment. */
+    private fun freeCitizen(division: MapUnit) {
+        division.civ.cities.firstOrNull { it.id == division.frontHomeCityId }?.shouldReassignPopulation = true
+    }
+
     private fun nearestCity(civ: Civilization, tile: Tile): City? =
         civ.cities.minByOrNull { it.getCenterTile().aerialDistanceTo(tile) }
 
@@ -276,8 +349,13 @@ object FrontResolver {
             if (division.health <= FrontMath.DISSOLVE_HEALTH) {
                 division.civ.addNotification("Our [${division.name}] has broken up!",
                     division.currentTile.position, NotificationCategory.War, NotificationIcon.Death)
+                freeCitizen(division)
                 division.destroy()
                 continue
+            }
+            division.frontTargets.removeAll { hex ->
+                val tile = division.civ.gameInfo.tileMap.getOrNull(hex.x, hex.y)
+                tile == null || tile !in validTargets(division)
             }
             val stance = stanceOf(division)
             // Tell a human player why an offensive does nothing

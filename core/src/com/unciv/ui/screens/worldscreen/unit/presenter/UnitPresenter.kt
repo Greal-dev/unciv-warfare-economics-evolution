@@ -28,6 +28,9 @@ class UnitPresenter(private val unitTable: UnitTable, private val worldScreen: W
     // Whether the (first) selected unit is in unit-swapping mode
     var selectedUnitIsSwapping = false
 
+    // Whether the (first) selected division is choosing the tiles it presses
+    var selectedUnitIsFrontTargeting = false
+
     // Whether the (first) selected unit is in road-connecting mode
     var selectedUnitIsConnectingRoad = false
 
@@ -43,6 +46,7 @@ class UnitPresenter(private val unitTable: UnitTable, private val worldScreen: W
         }
         selectedUnitIsSwapping = false
         selectedUnitIsConnectingRoad = false
+        selectedUnitIsFrontTargeting = false
     }
 
     override fun update() {

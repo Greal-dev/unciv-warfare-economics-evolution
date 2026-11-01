@@ -164,6 +164,15 @@ class WorldMapHolder(
             return
         }
 
+        // Front mode: while a division chooses its targets, a click designates or releases a tile
+        val targetingDivision = worldScreen.bottomUnitTable.selectedUnit?.getUnit()
+            ?.takeIf { worldScreen.bottomUnitTable.selectedUnitIsFrontTargeting && com.unciv.logic.front.FrontResolver.isDivision(it) }
+        if (targetingDivision != null && worldScreen.canChangeState) {
+            com.unciv.logic.front.FrontResolver.toggleTarget(targetingDivision, tileView.tile)
+            worldScreen.shouldUpdate = true
+            return
+        }
+
         removeUnitActionOverlay()
         selectedTile = tileView
         unitMovementPaths.clear()

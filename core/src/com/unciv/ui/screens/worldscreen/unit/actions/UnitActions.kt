@@ -151,7 +151,7 @@ object UnitActions {
 
         addRestoreUnitAction(unit)
         addSleepActions(unit, tile)
-        if (com.unciv.logic.front.FrontResolver.isDivision(unit)) addFrontStanceActions(unit)
+        if (com.unciv.logic.front.FrontResolver.isDivision(unit)) { addFrontStanceActions(unit); addFrontTargetActions(unit) }
         else addFortifyActions(unit)
 
         addExplorationActions(unit)
@@ -312,6 +312,44 @@ object UnitActions {
             unit.action = UnitActionType.Explore.value
             if (unit.hasMovement()) UnitAutomation.automatedExplore(unit)
         })
+    }
+
+    /** Front mode: designate the tiles a division presses, release them, or move the citizen it occupies to another city. */
+    private suspend fun SequenceScope<UnitAction>.addFrontTargetActions(unit: MapUnit) {
+        val worldScreen = GUI.getWorldScreen()
+        if (unit.frontStance.let { com.unciv.logic.front.FrontStance.fromName(it).presses }) {
+            yield(UnitAction(UnitActionType.FrontTarget,
+                useFrequency = 35f,
+                isCurrentAction = worldScreen.bottomUnitTable.selectedUnitIsFrontTargeting,
+                action = {
+                    worldScreen.bottomUnitTable.selectedUnitIsFrontTargeting =
+                        !worldScreen.bottomUnitTable.selectedUnitIsFrontTargeting
+                    worldScreen.shouldUpdate = true
+                }
+            ))
+        }
+        if (unit.frontTargets.isNotEmpty())
+            yield(UnitAction(UnitActionType.FrontClearTargets, useFrequency = 20f, action = {
+                unit.frontTargets.clear()
+                worldScreen.bottomUnitTable.selectedUnitIsFrontTargeting = false
+                worldScreen.shouldUpdate = true
+            }))
+        val candidates = com.unciv.logic.front.FrontResolver.burdenCandidates(unit)
+        if (unit.civ.cities.size > 1 && candidates.size > 1)
+            yield(UnitAction(UnitActionType.FrontBurden, useFrequency = 10f, action = {
+                val popup = com.unciv.ui.popups.Popup(worldScreen)
+                popup.addGoodSizedLabel("Front burden".tr()).row()
+                for (city in candidates) {
+                    val here = if (city.id == unit.frontHomeCityId) " *" else ""
+                    popup.addButton("${city.name}$here") {
+                        com.unciv.logic.front.FrontResolver.reassignBurden(unit, city)
+                        popup.close()
+                        worldScreen.shouldUpdate = true
+                    }.row()
+                }
+                popup.addCloseButton()
+                popup.open(true)
+            }))
     }
 
     /** Front mode: a division has no fortify or sleep, it chooses one of four postures. */

@@ -212,3 +212,11 @@ Lancement : `gradlew :desktop:run "--args=--testai=200 --front"` (4 civs IA, 3 c
 - Une division presse le centre d'une ville ennemie comme une case de contact. Ordre de priorité des cases pressées : divisions ennemies, centres de ville, autres cases. Quand la progression atteint 100, la ville passe en marionnette du vainqueur, comme dans la règle de siège du fork, qui reste en vigueur.
 - Le bonus de ville de +200 % s'applique aux divisions qui tiennent la ville, pas à la milice d'une ville vide. Une ville vide tombe vite devant quelques divisions, une ville défendue exige de la masse.
 - La force d'une division dépend des technologies militaires possédées : niveau militaire = 7 × (technologies militaires acquises ÷ technologies débloquant une unité militaire du ruleset), force = 20 × (1 + 0,25 × niveau). La largeur de front reste liée à l'ère.
+## Trois types de division, ciblage, spécialiste improductif
+
+- Trois unités : « Division » (infanterie, 2 tours), « Cavalry Division » (équitation, 3 tours, 1 cheval consommé), « Armored Division » (technologie Combustion, première unité blindée des deux règles, 4 tours, 1 pétrole consommé). Le délai est fixe : le coût de production vaut la production de la ville × le nombre de tours.
+- La cavalerie et le blindé pressent plus fort en offensive (agressive ×1,6 et ×2,2 ; modérée ×1,15 et ×1,25), résistent moins en tenue de terrain (×0,7 et ×0,6) et mieux en repli (×1,5 et ×1,6). L'IA les replie au lieu de leur faire tenir la ligne.
+- Ciblage : l'action « Front target » ouvre un mode où chaque clic désigne ou libère une case de contact de la zone. La pression totale se répartit à parts égales entre les cases désignées, donc une case la concentre. Sans cible valide, le choix automatique reprend. « Clear front targets » efface la liste.
+- Une division ne coûte plus d'habitant : elle occupe un citoyen de sa ville, qui cesse de travailler. Une ville garde au moins un citoyen au travail. L'action « Front burden » reporte la charge sur une autre ville. Le citoyen est libéré quand la division disparaît.
+- Les unités terrestres de combat qui ne sont plus produites sont retirées des files de production des villes à chaque tour de front.
+- Icônes : soldat (Infantry), cavalier (Knight), char (Tank), copiées sous les noms des divisions.
