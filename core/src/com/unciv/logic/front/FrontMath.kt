@@ -1,6 +1,5 @@
 package com.unciv.logic.front
 
-import kotlin.math.max
 import kotlin.math.min
 import yairm210.purity.annotations.Readonly
 
@@ -13,20 +12,18 @@ object FrontMath {
     const val ZONE_RADIUS = 2
     /** Resistance of an uncovered tile, the militia of a territory without divisions */
     const val BASE_RESISTANCE = 6f
-    /** Ratio below which a pressed tile does not progress */
-    const val RATIO_THRESHOLD = 0.7f
-    /** Progress points per unit of ratio above the threshold */
-    const val PROGRESS_PER_RATIO = 25f
-    /** Progress a pressed tile needs to change hands */
-    const val FLIP_PROGRESS = 100f
-    /** Share of the progress kept from one round to the next when nobody presses the tile */
-    const val PROGRESS_KEPT_WHEN_IDLE = 0.8f
+    /** Ratio of attack force to resistance from which an attack succeeds (the tile is taken or the defenders give way): the attacker needs a clear edge */
+    const val VICTORY_RATIO = 1.2f
+    /** Share of its pressure that a division in the zone of the target adds to an attack it does not lead */
+    const val SUPPORT_SHARE = 0.5f
+    /** Health points a defender loses when it has to give way and has nowhere to fall back */
+    const val CORNERED_LOSS = 15
     /** Defence bonus of a city centre for the divisions that hold it, as decided for the fork: +200%. */
     const val CITY_DEFENSE_BONUS = 2f
     /** Citizens a city keeps at work: divisions are raised from the rest of its population. */
     const val MIN_CITIZENS_AT_WORK = 1
-    /** Health points lost by each side, on one tile, between equal forces in moderate postures */
-    const val BASE_LOSS = 4f
+    /** Health points lost by each side in one attack between equal forces, with moderate coefficients */
+    const val BASE_LOSS = 12f
     /** Entrenchment gained per round spent holding still */
     const val ENTRENCHMENT_PER_ROUND = 0.05f
     /** Health at or below which a division breaks up */
@@ -48,9 +45,6 @@ object FrontMath {
 
     /** Largest army the AI keeps: two divisions per city and one to start with. */
     @Readonly fun maxDivisions(cityCount: Int): Int = 1 + 2 * cityCount
-
-    /** How many contact tiles a division can press at once. */
-    fun frontWidth(eraNumber: Int): Int = 3 + eraNumber / 2
 
     /** Supply factor from the effective distance to the nearest own city (halved on roads, see CombatCostCalculator). */
     fun supplyFactor(effectiveDistance: Float): Float = when {
@@ -84,15 +78,6 @@ object FrontMath {
         friendlyShare >= 0.7f -> 0.3f
         friendlyShare <= 0.2f -> -0.3f
         else -> 0f
-    }
-
-    /** Progress points gained in one round by a tile pressed with the given pressure-to-resistance ratio. */
-    fun progressGain(ratio: Float): Float = max(0f, ratio - RATIO_THRESHOLD) * PROGRESS_PER_RATIO
-
-    /** Progress of a tile nobody presses: it fades, and disappears below one point. */
-    fun idleProgress(progress: Float): Float {
-        val faded = progress * PROGRESS_KEPT_WHEN_IDLE
-        return if (faded < 1f) 0f else faded
     }
 
     /**

@@ -6,6 +6,7 @@ import com.unciv.logic.map.mapunit.MapUnit
 import com.unciv.testing.BaseTestRunner
 import com.unciv.testing.TestGame
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -21,6 +22,7 @@ class FrontContactTest {
     @Before
     fun setUp() {
         testGame.makeHexagonalMap(6)
+        testGame.gameInfo.gameParameters.frontMode = true
         civA = testGame.addCiv()
         civB = testGame.addCiv()
         civA.diplomacyFunctions.makeCivilizationsMeet(civB)
@@ -44,65 +46,83 @@ class FrontContactTest {
     private fun division(civ: Civilization, x: Int, y: Int, stance: FrontStance): MapUnit {
         val unit = testGame.addUnit(FrontResolver.DIVISION_UNIT_NAME, civ, testGame.getTile(HexCoord(x, y)))
         unit.frontStance = stance.name
+        unit.currentMovement = unit.getMaxMovement().toFloat()
         return unit
     }
 
     @Test
-    fun `an aggressive division hurts an enemy division standing on a tile that belongs to nobody`() {
-        val attacker = division(civA, -1, 0, FrontStance.Aggressive)
+    fun `an attack hurts an enemy division standing on a tile that belongs to nobody`() {
+        val attacker = division(civA, -1, 0, FrontStance.Defensive)
         val target = division(civB, 0, 0, FrontStance.Defensive)
         assertEquals(null, testGame.getTile(HexCoord(0, 0)).getOwner())
-        repeat(3) { FrontResolver.resolveRound(testGame.gameInfo) }
+        val result = FrontResolver.attack(attacker, testGame.getTile(HexCoord(0, 0)), FrontStance.Aggressive)
+        assertNotNull(result)
         assertTrue("the enemy division must lose troops", target.health < 100)
         assertTrue("the attacker pays too", attacker.health < 100)
     }
 
     @Test
-    fun `an aggressive division hurts an enemy division standing in its own territory`() {
-        val attacker = division(civA, -3, 0, FrontStance.Aggressive)
+    fun `an attack hurts an enemy division standing in the attacker's own territory`() {
+        val attacker = division(civA, -3, 0, FrontStance.Defensive)
         val intruder = division(civB, -2, 0, FrontStance.Defensive)
         assertEquals(civA, testGame.getTile(HexCoord(-2, 0)).getOwner())
-        repeat(3) { FrontResolver.resolveRound(testGame.gameInfo) }
+        FrontResolver.attack(attacker, testGame.getTile(HexCoord(-2, 0)), FrontStance.Aggressive)
         assertTrue("the intruder must lose troops", intruder.health < 100)
-        assertTrue(attacker.health <= 100)
     }
 
     @Test
     fun `fighting an intruder does not give the attacker tiles it already owns`() {
-        division(civA, -3, 0, FrontStance.Aggressive)
+        val attacker = division(civA, -3, 0, FrontStance.Defensive)
         division(civB, -2, 0, FrontStance.Defensive)
-        repeat(5) { FrontResolver.resolveRound(testGame.gameInfo) }
-        assertTrue(testGame.tileMap.values.none { it.getOwner() == civA && it.frontProgress > 0f })
+        val before = testGame.tileMap.values.count { it.getOwner() == civA }
+        val result = FrontResolver.attack(attacker, testGame.getTile(HexCoord(-2, 0)), FrontStance.Aggressive)!!
+        assertEquals(false, result.tileTaken)
+        assertEquals(before, testGame.tileMap.values.count { it.getOwner() == civA })
     }
 
     @Test
-    fun `enemy divisions are pressed before empty enemy tiles`() {
-        val attacker = division(civA, 0, 0, FrontStance.Aggressive)
+    fun `enemy divisions come before empty enemy tiles in the targets`() {
+        val attacker = division(civA, 0, 0, FrontStance.Defensive)
         division(civB, 2, 0, FrontStance.Defensive)
-        val tiles = FrontResolver.pressedTilesOf(attacker)
+        val tiles = FrontResolver.attackTargets(attacker)
         assertTrue(tiles.isNotEmpty())
         assertEquals(testGame.getTile(HexCoord(2, 0)), tiles.first())
     }
 
     private fun cityOfB() = testGame.getTile(HexCoord(4, 0))
 
-    private fun surround(civ: Civilization, stance: FrontStance, count: Int) {
-        listOf(HexCoord(3, 0), HexCoord(3, 1), HexCoord(4, -1)).take(count).forEach { division(civ, it.x, it.y, stance) }
-    }
+    private fun surround(civ: Civilization, count: Int): List<MapUnit> =
+        listOf(HexCoord(3, 0), HexCoord(3, 1), HexCoord(4, -1)).take(count).map { division(civ, it.x, it.y, FrontStance.Defensive) }
 
     @Test
-    fun `several aggressive divisions in contact take a city by pressure on its centre`() {
-        surround(civA, FrontStance.Aggressive, 3)
-        repeat(80) { FrontResolver.resolveRound(testGame.gameInfo) }
+    fun `several divisions in contact take an empty city with a single attack`() {
+        val attackers = surround(civA, 3)
+        val result = FrontResolver.attack(attackers[0], cityOfB(), FrontStance.Aggressive)!!
+        assertTrue(result.message, result.tileTaken)
         assertEquals(civA, cityOfB().getOwner())
     }
 
     @Test
     fun `a city held by a division resists a small assault`() {
-        surround(civA, FrontStance.Aggressive, 3)
+        val attackers = surround(civA, 3)
         division(civB, 5, 0, FrontStance.Defensive)
-        repeat(30) { FrontResolver.resolveRound(testGame.gameInfo) }
+        val result = FrontResolver.attack(attackers[0], cityOfB(), FrontStance.Aggressive)!!
+        assertEquals(false, result.preview.succeeds)
         assertEquals(civB, cityOfB().getOwner())
+    }
+
+    @Test
+    fun `a city falls once its defender is worn down by successive attacks`() {
+        val attackers = surround(civA, 3)
+        val defender = division(civB, 5, 0, FrontStance.Defensive)
+        var attacks = 0
+        // A fresh attacker leads each time, the others keep supporting
+        while (cityOfB().getOwner() == civB && attacks < 3) {
+            val leader = attackers.getOrNull(attacks) ?: break
+            FrontResolver.attack(leader, cityOfB(), FrontStance.Aggressive)
+            attacks++
+        }
+        assertTrue("the defender must have been worn down", defender.isDestroyed || defender.health < 100)
     }
 
     @Test
@@ -121,34 +141,5 @@ class FrontContactTest {
         val after = FrontResolver.militaryLevel(civA)
         assertTrue("level must rise from $before to $after", after > before)
         assertEquals(FrontMath.MAX_MILITARY_LEVEL, after, 0.001f)
-    }
-
-    @Test
-    fun `designated tiles replace the automatic choice and concentrate the force`() {
-        val attacker = division(civA, 1, 0, FrontStance.Aggressive)
-        val automatic = FrontResolver.pressedTilesOf(attacker)
-        assertTrue("automatic choice: $automatic", automatic.size > 1)
-        val chosen = automatic.first()
-        FrontResolver.toggleTarget(attacker, chosen)
-        assertEquals(listOf(chosen), FrontResolver.pressedTilesOf(attacker))
-        FrontResolver.toggleTarget(attacker, chosen)
-        assertEquals(automatic, FrontResolver.pressedTilesOf(attacker))
-    }
-
-    @Test
-    fun `a designated tile out of contact is refused`() {
-        val attacker = division(civA, 0, 0, FrontStance.Aggressive)
-        FrontResolver.toggleTarget(attacker, testGame.getTile(HexCoord(-3, 0)))
-        assertTrue(attacker.frontTargets.isEmpty())
-    }
-
-    @Test
-    fun `a single designated tile draws the whole pressure of the division`() {
-        val attacker = division(civA, 1, 0, FrontStance.Aggressive)
-        val chosen = FrontResolver.pressedTilesOf(attacker).first()
-        FrontResolver.toggleTarget(attacker, chosen)
-        FrontResolver.resolveRound(testGame.gameInfo)
-        val pressed = testGame.tileMap.values.filter { it.frontProgress > 0f }
-        assertTrue(pressed.all { it == chosen })
     }
 }

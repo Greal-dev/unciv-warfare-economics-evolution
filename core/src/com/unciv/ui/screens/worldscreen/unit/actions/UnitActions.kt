@@ -314,26 +314,22 @@ object UnitActions {
         })
     }
 
-    /** Front mode: designate the tiles a division presses, release them, or move the citizen it occupies to another city. */
+    /** Front mode: launch an attack on a tile in reach, or move the citizen a division occupies to another city. */
     private suspend fun SequenceScope<UnitAction>.addFrontTargetActions(unit: MapUnit) {
         val worldScreen = GUI.getWorldScreen()
-        if (unit.frontStance.let { com.unciv.logic.front.FrontStance.fromName(it).presses }) {
-            yield(UnitAction(UnitActionType.FrontTarget,
-                useFrequency = 35f,
+        if (unit.civ.isAtWar()) {
+            val ready = com.unciv.logic.front.FrontResolver.canAttack(unit) &&
+                com.unciv.logic.front.FrontResolver.attackTargets(unit).isNotEmpty()
+            yield(UnitAction(UnitActionType.FrontAttack,
+                useFrequency = 45f,
                 isCurrentAction = worldScreen.bottomUnitTable.selectedUnitIsFrontTargeting,
                 action = {
                     worldScreen.bottomUnitTable.selectedUnitIsFrontTargeting =
                         !worldScreen.bottomUnitTable.selectedUnitIsFrontTargeting
                     worldScreen.shouldUpdate = true
-                }
+                }.takeIf { ready }
             ))
         }
-        if (unit.frontTargets.isNotEmpty())
-            yield(UnitAction(UnitActionType.FrontClearTargets, useFrequency = 20f, action = {
-                unit.frontTargets.clear()
-                worldScreen.bottomUnitTable.selectedUnitIsFrontTargeting = false
-                worldScreen.shouldUpdate = true
-            }))
         val candidates = com.unciv.logic.front.FrontResolver.burdenCandidates(unit)
         if (unit.civ.cities.size > 1 && candidates.size > 1)
             yield(UnitAction(UnitActionType.FrontBurden, useFrequency = 10f, action = {
@@ -352,10 +348,10 @@ object UnitActions {
             }))
     }
 
-    /** Front mode: a division has no fortify or sleep, it chooses one of four postures. */
+    /** Front mode: a division has no fortify or sleep, it chooses how it reacts when the adversary attacks it. */
     private suspend fun SequenceScope<UnitAction>.addFrontStanceActions(unit: MapUnit) {
-        val current = com.unciv.logic.front.FrontResolver.stanceOf(unit)
-        for (stance in com.unciv.logic.front.FrontStance.entries)
+        val current = com.unciv.logic.front.FrontResolver.reactionOf(unit)
+        for (stance in com.unciv.logic.front.FrontStance.postures)
             yield(UnitAction(UnitActionType.FrontStance,
                 useFrequency = 40f,
                 title = stance.label,

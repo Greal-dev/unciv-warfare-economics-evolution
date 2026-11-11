@@ -164,11 +164,13 @@ class WorldMapHolder(
             return
         }
 
-        // Front mode: while a division chooses its targets, a click designates or releases a tile
+        // Front mode: while a division chooses its target, a click on an attackable tile opens the attack, any other click cancels
         val targetingDivision = worldScreen.bottomUnitTable.selectedUnit?.getUnit()
             ?.takeIf { worldScreen.bottomUnitTable.selectedUnitIsFrontTargeting && com.unciv.logic.front.FrontResolver.isDivision(it) }
         if (targetingDivision != null && worldScreen.canChangeState) {
-            com.unciv.logic.front.FrontResolver.toggleTarget(targetingDivision, tileView.tile)
+            if (tileView.tile in com.unciv.logic.front.FrontResolver.attackTargets(targetingDivision))
+                com.unciv.ui.screens.worldscreen.unit.actions.FrontAttackPopup(worldScreen, targetingDivision, tileView.tile).open()
+            else worldScreen.bottomUnitTable.selectedUnitIsFrontTargeting = false
             worldScreen.shouldUpdate = true
             return
         }

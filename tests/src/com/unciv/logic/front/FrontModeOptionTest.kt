@@ -58,7 +58,7 @@ class FrontModeOptionTest {
         val landless = testGame.addCiv()
         val unit = testGame.addUnit(FrontResolver.DIVISION_UNIT_NAME, landless, testGame.getTile(HexCoord(2, 0)))
         val kept = testGame.addUnit(FrontResolver.DIVISION_UNIT_NAME, civ, testGame.getTile(HexCoord(-2, 0)))
-        FrontResolver.resolveRound(testGame.gameInfo)
+        FrontResolver.endOfRound(testGame.gameInfo)
         assertFalse(unit.civ.units.getCivUnits().any { FrontResolver.isDivision(it) })
         assertTrue(kept.civ.units.getCivUnits().any { FrontResolver.isDivision(it) })
     }
@@ -105,7 +105,7 @@ class FrontModeOptionTest {
         testGame.gameInfo.gameParameters.frontMode = true
         city.cityConstructions.constructionQueue.clear()
         city.cityConstructions.constructionQueue.add("Warrior")
-        FrontResolver.resolveRound(testGame.gameInfo)
+        FrontResolver.endOfRound(testGame.gameInfo)
         assertFalse(city.cityConstructions.constructionQueue.contains("Warrior"))
     }
 
@@ -116,7 +116,7 @@ class FrontModeOptionTest {
         other.population.setPopulation(4)
         val unit = testGame.addUnit(FrontResolver.DIVISION_UNIT_NAME, civ, testGame.getTile(HexCoord(1, 0)))
         unit.frontHomeCityId = "a-city-that-no-longer-exists"
-        FrontResolver.resolveRound(testGame.gameInfo)
+        FrontResolver.endOfRound(testGame.gameInfo)
         assertEquals(other.id, unit.frontHomeCityId)
         assertEquals(3, FrontResolver.workersAvailable(other))
     }
@@ -127,7 +127,7 @@ class FrontModeOptionTest {
         city.population.setPopulation(1)
         val unit = testGame.addUnit(FrontResolver.DIVISION_UNIT_NAME, civ, testGame.getTile(HexCoord(1, 0)))
         unit.frontHomeCityId = "a-city-that-no-longer-exists"
-        FrontResolver.resolveRound(testGame.gameInfo)
+        FrontResolver.endOfRound(testGame.gameInfo)
         assertFalse(civ.units.getCivUnits().any { FrontResolver.isDivision(it) })
     }
 }

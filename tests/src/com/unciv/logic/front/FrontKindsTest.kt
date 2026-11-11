@@ -72,10 +72,17 @@ class FrontKindsTest {
 
     @Test
     fun `a mobile division falls back where infantry holds`() {
-        assertEquals(FrontStance.Defensive, FrontAutomation.chooseStance(0.5f, 100, true, FrontStance.Defensive, DivisionKind.Infantry))
-        assertEquals(FrontStance.Withdrawal, FrontAutomation.chooseStance(0.5f, 100, true, FrontStance.Defensive, DivisionKind.Cavalry))
-        assertEquals(FrontStance.Aggressive, FrontAutomation.chooseStance(1.6f, 100, true, FrontStance.Defensive, DivisionKind.Armored))
-        assertEquals(FrontStance.Moderate, FrontAutomation.chooseStance(1.6f, 100, true, FrontStance.Defensive, DivisionKind.Infantry))
+        assertEquals(FrontStance.Defensive, FrontAutomation.chooseReaction(0.5f, 100, true, DivisionKind.Infantry))
+        assertEquals(FrontStance.Withdrawal, FrontAutomation.chooseReaction(0.5f, 100, true, DivisionKind.Cavalry))
+        assertEquals(FrontStance.Defensive, FrontAutomation.chooseReaction(1.6f, 100, true, DivisionKind.Armored))
         assertFalse(DivisionKind.Infantry.isMobile)
+    }
+
+    @Test
+    fun `cavalry and armour hit harder in an aggressive attack and resist less when they hold`() {
+        assertTrue(DivisionKind.Armored.offenseFactor(FrontStance.Aggressive) > DivisionKind.Cavalry.offenseFactor(FrontStance.Aggressive))
+        assertTrue(DivisionKind.Cavalry.offenseFactor(FrontStance.Aggressive) > DivisionKind.Infantry.offenseFactor(FrontStance.Aggressive))
+        assertTrue(DivisionKind.Cavalry.defenseFactor(FrontStance.Defensive) < DivisionKind.Infantry.defenseFactor(FrontStance.Defensive))
+        assertTrue(DivisionKind.Armored.defenseFactor(FrontStance.Withdrawal) > DivisionKind.Infantry.defenseFactor(FrontStance.Withdrawal))
     }
 }

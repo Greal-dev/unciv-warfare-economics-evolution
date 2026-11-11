@@ -15,6 +15,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 
+/** Attacks launched during the turn of their owner, resolved on the spot, and the upkeep of the front. */
 @RunWith(BaseTestRunner::class)
 class FrontResolverTest {
     private val testGame = TestGame()
@@ -23,176 +24,221 @@ class FrontResolverTest {
     private lateinit var tileA: Tile   // city centre of A
     private lateinit var tileB: Tile   // city centre of B
 
-    @Before
-    fun setUp() {
-        testGame.makeHexagonalMap(6)
-        civA = testGame.addCiv()
-        civB = testGame.addCiv()
-        civA.diplomacyFunctions.makeCivilizationsMeet(civB)
-        civA.diplomacy[civB.civName]?.declareWar()
+    /** Two civilizations at war, each owning the half of the map closest to its city. */
+    private class Duel(val game: TestGame, val a: Civilization, val b: Civilization, val centreA: Tile, val centreB: Tile)
 
-        tileA = testGame.getTile(HexCoord(-3, 0))
-        tileB = testGame.getTile(HexCoord(3, 0))
-        val cityA = testGame.addCity(civA, tileA)
-        val cityB = testGame.addCity(civB, tileB)
-
-        // Split the map along the middle: each side owns what is closer to its own city centre
-        for (tile in testGame.tileMap.values) {
-            if (tile == tileA || tile == tileB) continue
-            val owner = if (tile.aerialDistanceTo(tileA) < tile.aerialDistanceTo(tileB)) cityA else cityB
+    private fun duel(game: TestGame): Duel {
+        game.makeHexagonalMap(6)
+        game.gameInfo.gameParameters.frontMode = true
+        val a = game.addCiv()
+        val b = game.addCiv()
+        a.diplomacyFunctions.makeCivilizationsMeet(b)
+        a.diplomacy[b.civName]?.declareWar()
+        val centreA = game.getTile(HexCoord(-3, 0))
+        val centreB = game.getTile(HexCoord(3, 0))
+        val cityA = game.addCity(a, centreA)
+        val cityB = game.addCity(b, centreB)
+        for (tile in game.tileMap.values) {
+            if (tile == centreA || tile == centreB) continue
+            val owner = if (tile.aerialDistanceTo(centreA) < tile.aerialDistanceTo(centreB)) cityA else cityB
             owner.expansion.takeOwnership(tile)
         }
+        return Duel(game, a, b, centreA, centreB)
     }
 
-    private fun division(civ: Civilization, x: Int, y: Int, stance: FrontStance, health: Int = 100): MapUnit {
-        val unit = testGame.addUnit(FrontResolver.DIVISION_UNIT_NAME, civ, testGame.getTile(HexCoord(x, y)))
+    @Before
+    fun setUp() {
+        val d = duel(testGame)
+        civA = d.a; civB = d.b; tileA = d.centreA; tileB = d.centreB
+    }
+
+    private fun division(game: TestGame, civ: Civilization, x: Int, y: Int, stance: FrontStance, health: Int = 100): MapUnit {
+        val unit = game.addUnit(FrontResolver.DIVISION_UNIT_NAME, civ, game.getTile(HexCoord(x, y)))
         unit.frontStance = stance.name
+        unit.currentMovement = unit.getMaxMovement().toFloat()
         unit.health = health
         return unit
     }
+
+    private fun division(civ: Civilization, x: Int, y: Int, stance: FrontStance, health: Int = 100) =
+        division(testGame, civ, x, y, stance, health)
 
     private fun ownedBy(civ: Civilization) = testGame.tileMap.values.count { it.getOwner() == civ }
 
     @Test
     fun `the division is a unit of the ruleset and cannot attack in the old way`() {
-        val unit = division(civA, -1, 0, FrontStance.Moderate)
+        val unit = division(civA, -1, 0, FrontStance.Defensive)
         assertTrue(FrontResolver.isDivision(unit))
         assertTrue(unit.hasUnique(com.unciv.models.ruleset.unique.UniqueType.CannotAttack))
     }
 
     @Test
-    fun `a moderate offensive builds progress on the enemy tiles in its zone`() {
-        division(civA, -1, 0, FrontStance.Moderate)
-        FrontResolver.resolveRound(testGame.gameInfo)
-        val pressed = testGame.tileMap.values.filter { it.frontProgress > 0f }
-        assertTrue("some enemy tile must progress", pressed.isNotEmpty())
-        assertTrue(pressed.all { it.getOwner() == civB && it.frontAttacker == civA.civName })
+    fun `an attack on an enemy tile is resolved at once and the tile changes hands`() {
+        val attacker = division(civA, -1, 0, FrontStance.Defensive)
+        val target = FrontResolver.attackTargets(attacker).first()
+        assertEquals(civB, target.getOwner())
+        val result = FrontResolver.attack(attacker, target, FrontStance.Moderate)
+        assertNotNull(result)
+        assertTrue(result!!.tileTaken)
+        assertEquals(civA, target.getOwner())
+        assertTrue(result.message.contains("Victory"))
     }
 
     @Test
-    fun `no more tiles are pressed than the front width allows`() {
-        division(civA, -1, 0, FrontStance.Moderate)
-        FrontResolver.resolveRound(testGame.gameInfo)
-        val pressed = testGame.tileMap.values.count { it.frontProgress > 0f }
-        assertTrue(pressed <= FrontMath.frontWidth(civA.getEraNumber()))
+    fun `a victorious division advances onto an adjacent tile it has taken`() {
+        val attacker = division(civA, -1, 0, FrontStance.Defensive)
+        val target = FrontResolver.attackTargets(attacker).first { it.aerialDistanceTo(attacker.currentTile) == 1 }
+        FrontResolver.attack(attacker, target, FrontStance.Moderate)
+        assertEquals(target, attacker.currentTile)
     }
 
     @Test
-    fun `holding the line does not press`() {
-        division(civA, -1, 0, FrontStance.Defensive)
-        FrontResolver.resolveRound(testGame.gameInfo)
-        assertTrue(testGame.tileMap.values.none { it.frontProgress > 0f })
+    fun `one attack per turn, the division has no movement left afterwards`() {
+        val attacker = division(civA, -1, 0, FrontStance.Defensive)
+        val target = FrontResolver.attackTargets(attacker).first()
+        assertTrue(FrontResolver.canAttack(attacker))
+        FrontResolver.attack(attacker, target, FrontStance.Moderate)
+        assertEquals(0f, attacker.currentMovement, 0f)
+        assertFalse(FrontResolver.canAttack(attacker))
+        assertNull(FrontResolver.attack(attacker, target, FrontStance.Moderate))
     }
 
     @Test
-    fun `a territory with no divisions falls to a sustained offensive but a city centre never flips directly`() {
-        division(civA, -1, 0, FrontStance.Aggressive)
-        val before = ownedBy(civB)
-        repeat(40) { FrontResolver.resolveRound(testGame.gameInfo) }
-        assertTrue("B must have lost tiles", ownedBy(civB) < before)
-        assertEquals(civB, tileB.getOwner())
+    fun `a tile out of reach or out of contact cannot be attacked`() {
+        val attacker = division(civA, -1, 0, FrontStance.Defensive)
+        assertNull(FrontResolver.previewAttack(attacker, testGame.getTile(HexCoord(-4, 0)), FrontStance.Moderate))
+        assertNull(FrontResolver.attack(attacker, testGame.getTile(HexCoord(4, 0)), FrontStance.Moderate))
+    }
+
+    @Test
+    fun `a defended tile repels a single moderate attack and both sides lose health`() {
+        val attacker = division(civA, -1, 0, FrontStance.Defensive)
+        val defender = division(civB, 1, 0, FrontStance.Defensive)
+        val target = testGame.getTile(HexCoord(0, 0))
+        val result = FrontResolver.attack(attacker, target, FrontStance.Moderate)
+        assertNotNull(result)
+        assertFalse(result!!.preview.succeeds)
+        assertEquals(civB, target.getOwner())
+        assertTrue(attacker.health < 100)
+        assertTrue(defender.health < 100)
+    }
+
+    @Test
+    fun `an aggressive attack hits harder and costs more than a moderate one`() {
+        val attacker = division(civA, -1, 0, FrontStance.Defensive)
+        division(civB, 1, 0, FrontStance.Defensive)
+        val target = testGame.getTile(HexCoord(0, 0))
+        val moderate = FrontResolver.previewAttack(attacker, target, FrontStance.Moderate)!!
+        val aggressive = FrontResolver.previewAttack(attacker, target, FrontStance.Aggressive)!!
+        assertTrue(aggressive.pressure > moderate.pressure)
+        assertTrue(aggressive.attackerLoss > moderate.attackerLoss)
+    }
+
+    @Test
+    fun `divisions of the attacker in the zone of the target support the attack`() {
+        val attacker = division(civA, -1, 0, FrontStance.Defensive)
+        division(civB, 1, 0, FrontStance.Defensive)
+        val target = testGame.getTile(HexCoord(0, 0))
+        val alone = FrontResolver.previewAttack(attacker, target, FrontStance.Moderate)!!
+        division(civA, -1, 1, FrontStance.Defensive)
+        val supported = FrontResolver.previewAttack(attacker, target, FrontStance.Moderate)!!
+        assertEquals(1, supported.supporters)
+        assertTrue(supported.pressure > alone.pressure)
+    }
+
+    @Test
+    fun `holding the line resists more than withdrawing, and a withdrawing defender falls back`() {
+        val attacker = division(civA, -1, 0, FrontStance.Defensive)
+        val defender = division(civB, 1, 0, FrontStance.Defensive)
+        val target = testGame.getTile(HexCoord(0, 0))
+        val holding = FrontResolver.previewAttack(attacker, target, FrontStance.Moderate)!!
+        defender.frontStance = FrontStance.Withdrawal.name
+        val withdrawing = FrontResolver.previewAttack(attacker, target, FrontStance.Moderate)!!
+        assertTrue(withdrawing.resistance < holding.resistance)
+
+        val before = defender.currentTile.aerialDistanceTo(tileB)
+        FrontResolver.attack(attacker, target, FrontStance.Moderate)
+        assertTrue("the defender must fall back toward its city", defender.currentTile.aerialDistanceTo(tileB) < before)
+    }
+
+    @Test
+    fun `the posture of the defender is the one that counts, not an old attack intensity`() {
+        val defender = division(civB, 1, 0, FrontStance.Aggressive)
+        assertEquals(FrontStance.Defensive, FrontResolver.reactionOf(defender))
+        defender.frontStance = FrontStance.Withdrawal.name
+        assertEquals(FrontStance.Withdrawal, FrontResolver.reactionOf(defender))
+    }
+
+    @Test
+    fun `an enemy division on the target is pushed back when the attack succeeds`() {
+        val attackers = listOf(division(civA, -1, 0, FrontStance.Defensive), division(civA, -1, 1, FrontStance.Defensive),
+            division(civA, 0, -1, FrontStance.Defensive))
+        val defender = division(civB, 0, 0, FrontStance.Defensive, health = 40)
+        val target = testGame.getTile(HexCoord(0, 0))
+        val result = FrontResolver.attack(attackers[0], target, FrontStance.Aggressive)!!
+        assertTrue(result.preview.succeeds)
+        assertTrue("the defender no longer stands on the target", defender.isDestroyed || defender.currentTile != target)
     }
 
     @Test
     fun `a flipped tile goes to the nearest city of the winner`() {
-        division(civA, -1, 0, FrontStance.Aggressive)
-        repeat(40) { FrontResolver.resolveRound(testGame.gameInfo) }
-        val taken = testGame.tileMap.values.filter { it.getOwner() == civA && it.aerialDistanceTo(tileB) < it.aerialDistanceTo(tileA) }
-        assertTrue("A must have crossed the middle", taken.isNotEmpty())
-        assertTrue(taken.all { it.getCity()?.civ == civA })
+        val attacker = division(civA, -1, 0, FrontStance.Defensive)
+        val target = FrontResolver.attackTargets(attacker).first()
+        FrontResolver.attack(attacker, target, FrontStance.Moderate)
+        assertEquals(civA, target.getOwner())
+        assertEquals(civA, target.getCity()?.civ)
     }
 
     @Test
-    fun `a defended tile resists far longer than an empty one`() {
-        // Same attacker, same rounds: first against an empty territory, then against a defending division
-        division(civA, -1, 0, FrontStance.Aggressive)
-        repeat(20) { FrontResolver.resolveRound(testGame.gameInfo) }
-        val openLoss = ownedBy(civB)
-
-        val other = TestGame()
-        other.makeHexagonalMap(6)
-        val a = other.addCiv(); val b = other.addCiv()
-        a.diplomacyFunctions.makeCivilizationsMeet(b); a.diplomacy[b.civName]?.declareWar()
-        val centreA = other.getTile(HexCoord(-3, 0)); val centreB = other.getTile(HexCoord(3, 0))
-        val cA = other.addCity(a, centreA); val cB = other.addCity(b, centreB)
-        for (tile in other.tileMap.values) {
-            if (tile == centreA || tile == centreB) continue
-            (if (tile.aerialDistanceTo(centreA) < tile.aerialDistanceTo(centreB)) cA else cB).expansion.takeOwnership(tile)
-        }
-        other.addUnit(FrontResolver.DIVISION_UNIT_NAME, a, other.getTile(HexCoord(-1, 0))).frontStance = FrontStance.Aggressive.name
-        other.addUnit(FrontResolver.DIVISION_UNIT_NAME, b, other.getTile(HexCoord(1, 0))).frontStance = FrontStance.Defensive.name
-        repeat(20) { FrontResolver.resolveRound(other.gameInfo) }
-        val defendedLoss = other.tileMap.values.count { it.getOwner() == b }
-
-        assertTrue("defended territory must hold more tiles ($defendedLoss) than the open one ($openLoss)", defendedLoss > openLoss)
+    fun `peace stops the attacks`() {
+        civA.diplomacy[civB.civName]?.makePeace()
+        assertFalse(civA.isAtWarWith(civB))
+        val attacker = division(civA, -1, 0, FrontStance.Defensive)
+        assertFalse(FrontResolver.canAttack(attacker))
+        assertTrue(FrontResolver.attackTargets(attacker).isEmpty())
     }
 
     @Test
-    fun `both sides lose health when two offensives meet`() {
-        val a = division(civA, -1, 0, FrontStance.Moderate)
-        val b = division(civB, 1, 0, FrontStance.Moderate)
-        repeat(3) { FrontResolver.resolveRound(testGame.gameInfo) }
-        assertTrue(a.health < 100)
-        assertTrue(b.health < 100)
-    }
-
-    @Test
-    fun `an aggressive division wears out faster than a moderate one`() {
-        val aggressive = division(civA, -1, 0, FrontStance.Aggressive)
-        division(civB, 1, 0, FrontStance.Defensive)
-        repeat(4) { FrontResolver.resolveRound(testGame.gameInfo) }
-
-        val other = TestGame()
-        other.makeHexagonalMap(6)
-        val a = other.addCiv(); val b = other.addCiv()
-        a.diplomacyFunctions.makeCivilizationsMeet(b); a.diplomacy[b.civName]?.declareWar()
-        val centreA = other.getTile(HexCoord(-3, 0)); val centreB = other.getTile(HexCoord(3, 0))
-        val cA = other.addCity(a, centreA); val cB = other.addCity(b, centreB)
-        for (tile in other.tileMap.values) {
-            if (tile == centreA || tile == centreB) continue
-            (if (tile.aerialDistanceTo(centreA) < tile.aerialDistanceTo(centreB)) cA else cB).expansion.takeOwnership(tile)
-        }
-        val moderate = other.addUnit(FrontResolver.DIVISION_UNIT_NAME, a, other.getTile(HexCoord(-1, 0)))
-        moderate.frontStance = FrontStance.Moderate.name
-        other.addUnit(FrontResolver.DIVISION_UNIT_NAME, b, other.getTile(HexCoord(1, 0))).frontStance = FrontStance.Defensive.name
-        repeat(4) { FrontResolver.resolveRound(other.gameInfo) }
-
-        assertTrue("aggressive ${aggressive.health} must be below moderate ${moderate.health}", aggressive.health < moderate.health)
-    }
-
-    @Test
-    fun `withdrawal steps the token back toward its city`() {
-        val unit = division(civA, -1, 0, FrontStance.Withdrawal)
-        val before = unit.currentTile.aerialDistanceTo(tileA)
-        FrontResolver.resolveRound(testGame.gameInfo)
-        assertTrue(unit.currentTile.aerialDistanceTo(tileA) < before)
-    }
-
-    @Test
-    fun `a division at ten health or less breaks up`() {
+    fun `a division at ten health or less breaks up at the end of the round`() {
         val unit = division(civA, -1, 0, FrontStance.Defensive, health = 10)
-        FrontResolver.resolveRound(testGame.gameInfo)
+        FrontResolver.endOfRound(testGame.gameInfo)
         assertTrue(unit.isDestroyed)
+    }
+
+    @Test
+    fun `a division that an attack leaves at ten health or less breaks up at once`() {
+        val attacker = division(civA, -1, 0, FrontStance.Defensive, health = 22)
+        division(civB, 1, 0, FrontStance.Defensive)
+        FrontResolver.attack(attacker, testGame.getTile(HexCoord(0, 0)), FrontStance.Aggressive)
+        assertTrue(attacker.isDestroyed)
     }
 
     @Test
     fun `entrenchment grows while holding still and resets after a move`() {
         val unit = division(civA, -2, 0, FrontStance.Defensive)
-        repeat(3) { FrontResolver.resolveRound(testGame.gameInfo) }
+        repeat(3) { FrontResolver.endOfRound(testGame.gameInfo) }
         assertTrue(unit.frontEntrenchment > 0f)
 
         unit.removeFromTile()
         unit.putInTile(testGame.getTile(HexCoord(-2, 1)))
-        FrontResolver.resolveRound(testGame.gameInfo)
+        FrontResolver.endOfRound(testGame.gameInfo)
         assertEquals(0f, unit.frontEntrenchment, 0.0001f)
+    }
+
+    @Test
+    fun `an attack resets the entrenchment of the attacker`() {
+        val attacker = division(civA, -1, 0, FrontStance.Defensive)
+        attacker.frontEntrenchment = 0.3f
+        FrontResolver.attack(attacker, FrontResolver.attackTargets(attacker).first(), FrontStance.Moderate)
+        assertEquals(0f, attacker.frontEntrenchment, 0f)
     }
 
     @Test
     fun `a wounded division in supplied own territory is reinforced against gold`() {
         civA.addGold(500)
-        val unit = division(civA, -2, 0, FrontStance.Defensive, health = 50)
+        val unit = division(civA, -3, 0, FrontStance.Defensive, health = 50)
         val goldBefore = civA.gold
-        FrontResolver.resolveRound(testGame.gameInfo)
+        FrontResolver.endOfRound(testGame.gameInfo)
         assertEquals(60, unit.health)
         assertTrue(civA.gold < goldBefore)
     }
@@ -200,62 +246,31 @@ class FrontResolverTest {
     @Test
     fun `no gold means no reinforcement`() {
         civA.addGold(-civA.gold)
-        val unit = division(civA, -2, 0, FrontStance.Defensive, health = 50)
-        FrontResolver.resolveRound(testGame.gameInfo)
+        val unit = division(civA, -3, 0, FrontStance.Defensive, health = 50)
+        FrontResolver.endOfRound(testGame.gameInfo)
         assertEquals(50, unit.health)
     }
 
     @Test
-    fun `progress fades when the pressure stops`() {
-        val unit = division(civA, -1, 0, FrontStance.Moderate)
-        FrontResolver.resolveRound(testGame.gameInfo)
-        val before = testGame.tileMap.values.sumOf { it.frontProgress.toDouble() }
-        assertTrue(before > 0.0)
-        unit.frontStance = FrontStance.Defensive.name
-        repeat(3) { FrontResolver.resolveRound(testGame.gameInfo) }
-        val after = testGame.tileMap.values.sumOf { it.frontProgress.toDouble() }
-        assertTrue(after < before)
-    }
-
-    @Test
-    fun `peace stops the pressure`() {
-        civA.diplomacy[civB.civName]?.makePeace()
-        assertFalse(civA.isAtWarWith(civB))
-        division(civA, -1, 0, FrontStance.Aggressive)
-        FrontResolver.resolveRound(testGame.gameInfo)
-        assertTrue(testGame.tileMap.values.none { it.frontProgress > 0f })
+    fun `the end of a round does not attack on its own`() {
+        division(civA, -1, 0, FrontStance.Defensive)
+        val before = ownedBy(civB)
+        repeat(5) { FrontResolver.endOfRound(testGame.gameInfo) }
+        assertEquals(before, ownedBy(civB))
     }
 
     @Test
     fun `the same setup gives the same result`() {
         fun run(): List<String> {
-            val g = TestGame()
-            g.makeHexagonalMap(6)
-            val a = g.addCiv(); val b = g.addCiv()
-            a.diplomacyFunctions.makeCivilizationsMeet(b); a.diplomacy[b.civName]?.declareWar()
-            val centreA = g.getTile(HexCoord(-3, 0)); val centreB = g.getTile(HexCoord(3, 0))
-            val cA = g.addCity(a, centreA); val cB = g.addCity(b, centreB)
-            for (tile in g.tileMap.values) {
-                if (tile == centreA || tile == centreB) continue
-                (if (tile.aerialDistanceTo(centreA) < tile.aerialDistanceTo(centreB)) cA else cB).expansion.takeOwnership(tile)
-            }
-            val ua = g.addUnit(FrontResolver.DIVISION_UNIT_NAME, a, g.getTile(HexCoord(-1, 0))); ua.frontStance = FrontStance.Aggressive.name
-            val ub = g.addUnit(FrontResolver.DIVISION_UNIT_NAME, b, g.getTile(HexCoord(1, 0))); ub.frontStance = FrontStance.Moderate.name
-            repeat(15) { FrontResolver.resolveRound(g.gameInfo) }
-            return g.tileMap.values.map { "${it.position}:${it.getOwner()?.civName}:${it.frontProgress}" } + listOf("${ua.health}", "${ub.health}")
+            val d = duel(TestGame())
+            val ua = division(d.game, d.a, -1, 0, FrontStance.Defensive)
+            val ub = division(d.game, d.b, 1, 0, FrontStance.Defensive)
+            division(d.game, d.a, -1, 1, FrontStance.Defensive)
+            val target = d.game.getTile(HexCoord(0, 0))
+            FrontResolver.attack(ua, target, FrontStance.Aggressive)
+            repeat(3) { FrontResolver.endOfRound(d.game.gameInfo) }
+            return d.game.tileMap.values.map { "${it.position}:${it.getOwner()?.civName}" } + listOf("${ua.health}", "${ub.health}")
         }
         assertEquals(run(), run())
-    }
-
-    @Test
-    fun `a pressed tile has an attacker recorded and a flipped one is cleared`() {
-        division(civA, -1, 0, FrontStance.Aggressive)
-        FrontResolver.resolveRound(testGame.gameInfo)
-        val pressed = testGame.tileMap.values.first { it.frontProgress > 0f }
-        assertNotNull(pressed.frontAttacker)
-        repeat(40) { FrontResolver.resolveRound(testGame.gameInfo) }
-        val flipped = testGame.tileMap.values.filter { it.getOwner() == civA && it.frontProgress == 0f }
-        assertTrue(flipped.all { it.frontAttacker == null })
-        assertNull(testGame.tileMap.values.firstOrNull { it.frontProgress == 0f && it.frontAttacker != null })
     }
 }

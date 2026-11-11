@@ -10,8 +10,8 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * Front mode: a scenario run, two civilizations with three cities each and divisions driven by the AI v0,
- * over 150 rounds. It prints the measures of the spec (tiles flipped, divisions lost, rounds to the first
+ * Front mode: a scenario run, two civilizations with three cities each and divisions driven by the AI,
+ * over 150 rounds, each division attacking during its turn. It prints the measures of the spec (tiles flipped, divisions lost, rounds to the first
  * collapse of a front) so the constants can be calibrated, and checks that the dynamics stay sane.
  */
 @RunWith(BaseTestRunner::class)
@@ -27,6 +27,7 @@ class FrontScenarioTest {
     private fun run(divisionsOfA: Int, divisionsOfB: Int, rounds: Int = 150): Result {
         val testGame = TestGame()
         testGame.makeHexagonalMap(10)
+        testGame.gameInfo.gameParameters.frontMode = true
         val civA = testGame.addCiv()
         val civB = testGame.addCiv()
         civA.diplomacyFunctions.makeCivilizationsMeet(civB)
@@ -67,7 +68,7 @@ class FrontScenarioTest {
                     unit.currentMovement = unit.getMaxMovement().toFloat()
                     FrontAutomation.automate(unit)
                 }
-            FrontResolver.resolveRound(testGame.gameInfo)
+            FrontResolver.endOfRound(testGame.gameInfo)
             val a = testGame.tileMap.values.count { it.getOwner() == civA }
             val b = testGame.tileMap.values.count { it.getOwner() == civB }
             if (a != previousA) { flipped += kotlin.math.abs(a - previousA); if (firstFlip < 0) firstFlip = round }

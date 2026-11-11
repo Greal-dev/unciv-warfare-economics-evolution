@@ -9,7 +9,7 @@ class FrontMathTest {
     private val delta = 0.001f
 
     @Test
-    fun `base strength grows with the military technologies, width with the era`() {
+    fun `base strength grows with the military technologies`() {
         assertEquals(20f, FrontMath.baseStrength(0f), delta)
         assertEquals(30f, FrontMath.baseStrength(2f), delta)
         assertEquals(20f, FrontMath.baseStrength(FrontMath.militaryLevel(0, 40)), delta)
@@ -17,39 +17,13 @@ class FrontMathTest {
         assertEquals(37.5f, FrontMath.baseStrength(FrontMath.militaryLevel(20, 40)), delta)
         assertEquals(FrontMath.MAX_MILITARY_LEVEL, FrontMath.militaryLevel(99, 40), delta)
         assertEquals(0f, FrontMath.militaryLevel(3, 0), delta)
-        assertEquals(3, FrontMath.frontWidth(0))
-        assertEquals(4, FrontMath.frontWidth(2))
-        assertEquals(6, FrontMath.frontWidth(6))
     }
 
     @Test
-    fun `progress needs a ratio above the threshold`() {
-        assertEquals(0f, FrontMath.progressGain(0.5f), delta)
-        assertEquals(0f, FrontMath.progressGain(0.7f), delta)
-        assertEquals(7.5f, FrontMath.progressGain(1.0f), delta)
-        assertEquals(25f, FrontMath.progressGain(1.7f), delta)
-    }
-
-    @Test
-    fun `a ratio of one point seven takes four rounds per tile`() {
-        var progress = 0f
-        var rounds = 0
-        while (progress < FrontMath.FLIP_PROGRESS) { progress += FrontMath.progressGain(1.7f); rounds++ }
-        assertEquals(4, rounds)
-    }
-
-    @Test
-    fun `idle progress fades and then disappears`() {
-        assertEquals(40f, FrontMath.idleProgress(50f), delta)
-        assertEquals(0f, FrontMath.idleProgress(1.2f), delta)
-        assertEquals(0f, FrontMath.idleProgress(0f), delta)
-    }
-
-    @Test
-    fun `equal forces in moderate postures each lose four points on a tile`() {
+    fun `equal forces with moderate coefficients each lose the base loss in an attack`() {
         val loss = FrontMath.loss(opposingForce = 10f, ownForce = 10f, share = 1f,
             taken = FrontStance.Moderate.taken, dealtByOpponent = FrontStance.Moderate.dealt)
-        assertEquals(4f, loss, delta)
+        assertEquals(FrontMath.BASE_LOSS, loss, delta)
     }
 
     @Test

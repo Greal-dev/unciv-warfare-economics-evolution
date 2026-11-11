@@ -1,7 +1,11 @@
 package com.unciv.logic.front
 
 /**
- * Front mode: the posture a division holds on its front.
+ * Front mode: the two intensities of an attack and the two postures a division takes when it is attacked.
+ *
+ * [Moderate] and [Aggressive] are chosen at the moment the player launches an attack, on one target tile.
+ * [Defensive] and [Withdrawal] are the posture a division keeps until the adversary attacks it: they decide
+ * how it reacts during the adversary's turn.
  *
  * All coefficients are starting points, to be calibrated with short seeded simulations.
  *
@@ -24,15 +28,18 @@ enum class FrontStance(
     /** Label shown on the action button */
     val label: String
 ) {
-    Moderate(1.0f, 0.8f, 1.0f, 1.0f, 0f, false, 1.0f, "Moderate offensive"),
-    Aggressive(1.5f, 0.6f, 1.5f, 1.3f, 0f, false, 1.5f, "Aggressive offensive"),
+    Moderate(1.0f, 0.8f, 1.0f, 1.0f, 0f, false, 1.0f, "Moderate attack"),
+    Aggressive(1.5f, 0.6f, 1.5f, 1.3f, 0f, false, 1.5f, "Aggressive attack"),
     Defensive(0f, 1.4f, 0.8f, 1.0f, 0.35f, false, 1.0f, "Hold the line"),
     Withdrawal(0f, 0.6f, 0.4f, 0.9f, 0f, true, 1.0f, "Strategic withdrawal");
 
-    /** Whether a division in this posture pushes on the enemy territory in its zone */
+    /** Whether this is an attack intensity, as opposed to a posture taken when attacked */
     val presses: Boolean get() = offense > 0f
 
     companion object {
+        /** The postures a division can hold while waiting to be attacked */
+        val postures: List<FrontStance> get() = entries.filter { !it.presses }
+
         /** Unknown or missing names fall back to the safest posture. */
         fun fromName(name: String?): FrontStance = entries.firstOrNull { it.name == name } ?: Defensive
     }

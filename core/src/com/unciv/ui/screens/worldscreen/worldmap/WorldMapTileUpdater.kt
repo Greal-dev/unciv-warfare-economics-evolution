@@ -69,26 +69,17 @@ object WorldMapTileUpdater {
      */
     private fun WorldMapHolder.updateFrontOverlay() {
         if (!worldScreen.gameInfo.gameParameters.frontMode) return
-        val viewer = worldScreen.viewingCiv
         val division = worldScreen.bottomUnitTable.selectedUnits.firstOrNull()?.getUnit()
             ?.takeIf { com.unciv.logic.front.FrontResolver.isDivision(it) }
         if (division != null) {
             for (tile in division.currentTile.getTilesInDistance(com.unciv.logic.front.FrontMath.ZONE_RADIUS))
                 tileGroups[tileMapView.getTile(tile)]?.layerOverlay?.showHighlight(Color.CYAN, 0.15f)
-            for (tile in com.unciv.logic.front.FrontResolver.pressedTilesOf(division))
-                tileGroups[tileMapView.getTile(tile)]?.layerOverlay?.showHighlight(Color.ORANGE, 0.4f)
-            // While choosing targets, every tile the division could press is offered in gold, the chosen ones in yellow
-            if (worldScreen.bottomUnitTable.selectedUnitIsFrontTargeting)
-                for (tile in division.currentTile.getTilesInDistance(com.unciv.logic.front.FrontMath.ZONE_RADIUS)
-                    .filter { com.unciv.logic.front.FrontResolver.isContactTile(it, division.civ) })
-                    tileGroups[tileMapView.getTile(tile)]?.layerOverlay?.showHighlight(Color.GOLD, 0.35f)
-            for (tile in com.unciv.logic.front.FrontResolver.validTargets(division))
-                tileGroups[tileMapView.getTile(tile)]?.layerOverlay?.showHighlight(Color.YELLOW, 0.75f)
-        }
-        for (tile in worldScreen.gameInfo.tileMap.values) {
-            if (tile.frontProgress <= 0f || !viewer.hasExplored(tile)) continue
-            val share = (tile.frontProgress / com.unciv.logic.front.FrontMath.FLIP_PROGRESS).coerceAtMost(1f)
-            tileGroups[tileMapView.getTile(tile)]?.layerOverlay?.showHighlight(Color.RED, 0.2f + 0.5f * share)
+            // The tiles the division can attack now: orange, and in gold while the player is choosing the target
+            val targeting = worldScreen.bottomUnitTable.selectedUnitIsFrontTargeting
+            if (com.unciv.logic.front.FrontResolver.canAttack(division))
+                for (tile in com.unciv.logic.front.FrontResolver.attackTargets(division))
+                    tileGroups[tileMapView.getTile(tile)]?.layerOverlay
+                        ?.showHighlight(if (targeting) Color.GOLD else Color.ORANGE, if (targeting) 0.6f else 0.4f)
         }
     }
 

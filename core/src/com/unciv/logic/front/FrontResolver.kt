@@ -15,10 +15,13 @@ import yairm210.purity.annotations.Readonly
 import kotlin.math.roundToInt
 
 /**
- * Front mode: resolves, once per round, the pressure that divisions exert on enemy territory.
+ * Front mode: the attacks of divisions and the upkeep of the front.
  *
- * A round ends when the last civilization has played its turn, so every order is already given and the
- * resolution is simultaneous. See docs/superpowers/specs/2026-10-02-mode-front-tranche-verticale-design.md.
+ * An attack is launched during the turn of its owner, on one target tile, and is resolved on the spot.
+ * The defenders react with the posture they hold (hold the line, strategic withdrawal), which therefore
+ * takes effect during the turn and the action of the adversary. Once per round, [endOfRound] pays the
+ * upkeep: retired units, lost cities, entrenchment, reinforcements.
+ * See docs/superpowers/specs/2026-10-02-mode-front-tranche-verticale-design.md.
  *
  * Iteration order is always derived from civilization order, unit order and tile coordinates, never from
  * hash order, so that two runs with the same seed give the same result.
@@ -45,6 +48,9 @@ object FrontResolver {
 
     fun stanceOf(unit: MapUnit) = FrontStance.fromName(unit.frontStance)
 
+    /** Posture a division opposes to an attack: an old or missing attack intensity counts as holding the line. */
+    fun reactionOf(unit: MapUnit): FrontStance = stanceOf(unit).takeIf { !it.presses } ?: FrontStance.Defensive
+
     /** Technologies that unlock a military unit, per ruleset: the military technologies of a civilization. */
     private val militaryTechsByRuleset = java.util.WeakHashMap<Ruleset, Set<String>>()
 
@@ -57,9 +63,6 @@ object FrontResolver {
         val techs = militaryTechs(civ.gameInfo.ruleset)
         return FrontMath.militaryLevel(techs.count { civ.tech.isResearched(it) }, techs.size)
     }
-
-    /** A share of a tile's force provided by one division. */
-    private class Contribution(val unit: MapUnit, val force: Float)
 
     /** Land units other than divisions are no longer produced in front mode: they leave the production queues of the cities. */
     private fun purgeRetiredUnits(gameInfo: GameInfo) {
@@ -103,7 +106,8 @@ object FrontResolver {
         }
     }
 
-    fun resolveRound(gameInfo: GameInfo) {
+    /** Upkeep of the front, once per round, after every civilization has played. Attacks are not resolved here. */
+    fun endOfRound(gameInfo: GameInfo) {
         purgeRetiredUnits(gameInfo)
         rehomeOrphans(gameInfo)
         // Without a city there is nothing left to pay, supply or recruit them: the divisions of such a civilization disband
@@ -118,70 +122,200 @@ object FrontResolver {
         val divisions = gameInfo.civilizations.flatMap { civ ->
             if (civ.isDefeated()) emptyList() else civ.units.getCivUnits().filter { isDivision(it) }.toList()
         }
-        if (divisions.isEmpty()) {
-            clearIdleProgress(gameInfo, emptySet())
-            return
-        }
-
-        val pressures = collectPressures(divisions)
-        val losses = LinkedHashMap<MapUnit, LossTally>()
-        val inContact = LinkedHashSet<MapUnit>()
-        val pressedTiles = LinkedHashSet<Tile>()
-
-        for ((tile, byAttacker) in pressures) {
-            // An enemy division standing on the tile defends it wherever the tile belongs, otherwise its owner does
-            val occupant = tile.militaryUnit?.takeIf { isDivision(it) && it.civ !in byAttacker.keys }?.civ
-            val defenderCiv = occupant ?: tile.getOwner() ?: continue
-            val (defenders, resistance) = resistanceOf(tile, defenderCiv, divisions)
-
-            // Several civilizations may press the same tile: only the strongest ratio makes it progress,
-            // but all of them take and inflict losses.
-            var bestAttacker: Civilization? = null
-            var bestRatio = 0f
-            for ((attacker, contributions) in byAttacker) {
-                val pressure = contributions.sumOf { it.force.toDouble() }.toFloat()
-                if (pressure <= 0f) continue
-                val ratio = pressure / resistance
-                if (bestAttacker == null || ratio > bestRatio) { bestAttacker = attacker; bestRatio = ratio }
-                accumulateLosses(losses, inContact, contributions, pressure, defenders, resistance)
-            }
-            pressedTiles += tile
-            // Only a tile that belongs to someone else can change hands: a fight against an intruder just costs troops
-            val tileOwner = tile.getOwner()
-            if (bestAttacker != null && tileOwner != null && tileOwner != bestAttacker) advance(tile, bestAttacker, bestRatio)
-        }
-
-        clearIdleProgress(gameInfo, pressedTiles)
-        flipTiles(gameInfo)
-        applyLosses(losses)
-        updateDivisions(divisions, inContact)
+        for (division in divisions) upkeep(division)
     }
 
-    // region pressure
+    // region attack
 
-    /** Contact tiles that a division presses, closest to its token first, limited by its front width. */
-    fun pressedTilesOf(division: MapUnit): List<Tile> {
-        val stance = stanceOf(division)
-        if (!stance.presses) return emptyList()
+    /** Tiles a division can attack: those of its zone that are in contact, enemy divisions first, then cities, then the rest. */
+    fun attackTargets(division: MapUnit): List<Tile> {
         val civ = division.civ
         val origin = division.currentTile
-        val width = FrontMath.frontWidth(civ.getEraNumber())
-        // Tiles chosen by the player come first: the whole force goes to them, concentrated on one or spread over several
-        val chosen = validTargets(division)
-        if (chosen.isNotEmpty()) return chosen.take(width)
         return origin.getTilesInDistance(FrontMath.ZONE_RADIUS)
             .filter { isContactTile(it, civ) }
             .sortedWith(compareBy<Tile>({ targetPriority(it, civ) }, { it.aerialDistanceTo(origin) }, { it.position.x }, { it.position.y }))
-            .take(width)
             .toList()
     }
 
-    /** Adds or removes [tile] from the tiles the player wants the division to press. A tile out of reach or out of contact is refused. */
-    fun toggleTarget(division: MapUnit, tile: Tile) {
-        if (division.frontTargets.remove(tile.position)) return
-        if (tile.aerialDistanceTo(division.currentTile) <= FrontMath.ZONE_RADIUS && isContactTile(tile, division.civ))
-            division.frontTargets.add(tile.position)
+    /** Whether the division can launch an attack now: front mode, at war, and still holding movement for this turn. */
+    fun canAttack(division: MapUnit): Boolean =
+        division.civ.gameInfo.gameParameters.frontMode && isDivision(division) && division.currentMovement > 0f &&
+            division.health > FrontMath.DISSOLVE_HEALTH && division.civ.isAtWar()
+
+    /** What an attack would amount to, before it is launched. All values are those the resolution will use. */
+    class AttackPreview(
+        val tile: Tile, val intensity: FrontStance,
+        val pressure: Float, val resistance: Float,
+        val attackerLoss: Int, val defenderLoss: Int,
+        val defenders: Int, val supporters: Int
+    ) {
+        val ratio: Float get() = pressure / resistance
+        val succeeds: Boolean get() = ratio >= FrontMath.VICTORY_RATIO
     }
+
+    /** Outcome of a launched attack. [message] tells the player what happened. */
+    class AttackResult(val preview: AttackPreview, val tileTaken: Boolean, val message: String)
+
+    /** A share of the force of the attackers or of the defenders of a tile, provided by one division. */
+    private class Contribution(val unit: MapUnit, val force: Float, val stance: FrontStance)
+
+    private class Engagement(
+        val tile: Tile, val defenderCiv: Civilization,
+        val attackers: List<Contribution>, val defenders: List<Contribution>,
+        val pressure: Float, val resistance: Float
+    )
+
+    private fun engagement(division: MapUnit, tile: Tile, intensity: FrontStance): Engagement? {
+        val civ = division.civ
+        if (!intensity.presses) return null
+        if (tile.aerialDistanceTo(division.currentTile) > FrontMath.ZONE_RADIUS || !isContactTile(tile, civ)) return null
+        // An enemy division standing on the tile defends it wherever the tile belongs, otherwise its owner does
+        val occupantCiv = if (holdsEnemyDivision(tile, civ)) tile.militaryUnit?.civ else null
+        val defenderCiv = occupantCiv ?: tile.getOwner() ?: return null
+
+        fun pressureOf(unit: MapUnit, stance: FrontStance) = FrontMath.pressure(
+            unit.health, militaryLevel(civ), stance,
+            FrontMath.supplyFactor(CombatCostCalculator.computeDistanceFactor(civ, unit.currentTile)), kindOf(unit))
+
+        val attackers = ArrayList<Contribution>()
+        attackers += Contribution(division, pressureOf(division, intensity), intensity)
+        // The divisions of the attacker in the zone of the target support the attack with part of their force
+        for (unit in civ.units.getCivUnits().filter { isDivision(it) && it != division && it.health > FrontMath.DISSOLVE_HEALTH }.toList())
+            if (unit.currentTile.aerialDistanceTo(tile) <= FrontMath.ZONE_RADIUS)
+                attackers += Contribution(unit, pressureOf(unit, FrontStance.Moderate) * FrontMath.SUPPORT_SHARE, FrontStance.Moderate)
+
+        val defenders = defenderCiv.units.getCivUnits().filter { isDivision(it) }.toList()
+            .filter { it.currentTile.aerialDistanceTo(tile) <= FrontMath.ZONE_RADIUS }
+            .map {
+                val reaction = reactionOf(it)
+                Contribution(it, FrontMath.resistance(it.health, militaryLevel(defenderCiv), reaction, it.frontEntrenchment, kindOf(it)), reaction)
+            }
+        // Local sympathy only protects a tile that really belongs to the defender
+        val sympathy = if (tile.getOwner() == defenderCiv) FrontMath.culturalSympathy(TileCultureLogic.getFriendlyShare(tile, defenderCiv)) else 0f
+        val resistance = FrontMath.tileResistance(
+            defenders.sumOf { it.force.toDouble() }.toFloat(), defenders.isNotEmpty(), tile.getDefensiveBonus(), sympathy,
+            if (tile.isCityCenter() && tile.getOwner() == defenderCiv) FrontMath.CITY_DEFENSE_BONUS else 0f
+        )
+        return Engagement(tile, defenderCiv, attackers, defenders, attackers.sumOf { it.force.toDouble() }.toFloat(), resistance)
+    }
+
+    /** Health points each division of an engagement loses, attackers and defenders alike. */
+    private fun lossesOf(e: Engagement): Map<MapUnit, Float> {
+        val dealtByDefenders = weightedDealt(e.defenders)
+        val dealtByAttackers = weightedDealt(e.attackers)
+        val losses = LinkedHashMap<MapUnit, Float>()
+        for (attacker in e.attackers)
+            losses[attacker.unit] = FrontMath.loss(e.resistance, e.pressure, attacker.force / e.pressure, attacker.stance.taken, dealtByDefenders)
+        val defenderForce = e.defenders.sumOf { it.force.toDouble() }.toFloat()
+        for (defender in e.defenders)
+            losses[defender.unit] = FrontMath.loss(e.pressure, e.resistance, defender.force / defenderForce, defender.stance.taken, dealtByAttackers)
+        return losses
+    }
+
+    /** Average [FrontStance.dealt] of a side, weighted by force; 1 when nobody is there. */
+    private fun weightedDealt(side: List<Contribution>): Float {
+        val total = side.sumOf { it.force.toDouble() }.toFloat()
+        if (total <= 0f) return 1f
+        return side.sumOf { (it.stance.dealt * it.force).toDouble() }.toFloat() / total
+    }
+
+    private fun previewOf(e: Engagement, division: MapUnit, intensity: FrontStance): AttackPreview {
+        val losses = lossesOf(e)
+        val defenderLoss = e.defenders.maxOfOrNull { losses[it.unit] ?: 0f } ?: 0f
+        return AttackPreview(e.tile, intensity, e.pressure, e.resistance,
+            (losses[division] ?: 0f).roundToInt(), defenderLoss.roundToInt(), e.defenders.size, e.attackers.size - 1)
+    }
+
+    /** Forecast of an attack of [intensity] by [division] on [tile], or null when the tile cannot be attacked. */
+    fun previewAttack(division: MapUnit, tile: Tile, intensity: FrontStance): AttackPreview? {
+        if (!canAttack(division)) return null
+        val e = engagement(division, tile, intensity) ?: return null
+        return previewOf(e, division, intensity)
+    }
+
+    /**
+     * Launches an attack of [division] on [tile] and resolves it at once: losses on both sides, then, if the
+     * attack succeeds, the defenders give way, the tile changes hands and the division advances onto it.
+     * Returns null when the attack cannot be launched.
+     */
+    fun attack(division: MapUnit, tile: Tile, intensity: FrontStance): AttackResult? {
+        if (!canAttack(division)) return null
+        val e = engagement(division, tile, intensity) ?: return null
+        val preview = previewOf(e, division, intensity)
+        val civ = division.civ
+
+        for ((unit, loss) in lossesOf(e)) unit.health = (unit.health - loss.roundToInt()).coerceAtLeast(0)
+        division.currentMovement = 0f
+        division.frontEntrenchment = 0f
+
+        val spent = HashSet<MapUnit>()
+        fun breakUpIfSpent(unit: MapUnit) {
+            if (unit in spent || unit.health > FrontMath.DISSOLVE_HEALTH) return
+            spent += unit
+            unit.civ.addNotification("Our [${unit.name}] has broken up!",
+                unit.currentTile.position, NotificationCategory.War, NotificationIcon.Death)
+            freeCitizen(unit)
+            unit.destroy()
+        }
+        e.attackers.forEach { breakUpIfSpent(it.unit) }
+        e.defenders.forEach { breakUpIfSpent(it.unit) }
+
+        // Defenders in strategic withdrawal fall back, and on a success the others standing on the tile give way too
+        for (defender in e.defenders) {
+            val unit = defender.unit
+            if (unit in spent) continue
+            val givesWay = defender.stance == FrontStance.Withdrawal || (preview.succeeds && unit.currentTile == tile)
+            if (givesWay && !stepBack(unit)) {
+                unit.health = (unit.health - FrontMath.CORNERED_LOSS).coerceAtLeast(0)
+                breakUpIfSpent(unit)
+            }
+        }
+
+        var tileTaken = false
+        var cityTaken = false
+        if (preview.succeeds && division !in spent) {
+            val previousOwner = tile.getOwner()
+            if (previousOwner != null && previousOwner != civ) {
+                tileTaken = true
+                val city = if (tile.isCityCenter()) tile.getCity() else null
+                if (city != null) {
+                    cityTaken = true
+                    previousOwner.addNotification("After an attack of [${civ.civName}], [${city.name}] has fallen!",
+                        tile.position, NotificationCategory.War, NotificationIcon.Death)
+                    city.puppetCity(civ)
+                } else {
+                    nearestCity(civ, tile)?.expansion?.takeOwnership(tile)
+                    previousOwner.addNotification("An attack of [${civ.civName}] took a tile from us!",
+                        tile.position, NotificationCategory.War, NotificationIcon.War)
+                }
+            }
+            advanceOnto(division, tile)
+        }
+        if (!preview.succeeds)
+            e.defenderCiv.addNotification("We repelled an attack of [${civ.civName}].",
+                tile.position, NotificationCategory.War, NotificationIcon.War)
+
+        val outcome = when {
+            cityTaken -> "Victory: the city is taken."
+            tileTaken -> "Victory: the tile is taken."
+            preview.succeeds -> "Victory: the defenders give way."
+            else -> "Repelled: the attack failed."
+        }
+        val defenderPart = if (preview.defenders > 0) "the defenders lose up to ${preview.defenderLoss}" else "no enemy division there to lose troops"
+        val message = "Attack on (${tile.position.x}, ${tile.position.y}), force ${preview.pressure.roundToInt()} " +
+            "against ${preview.resistance.roundToInt()}. $outcome Our division loses ${preview.attackerLoss} health points, $defenderPart."
+        return AttackResult(preview, tileTaken, message)
+    }
+
+    private fun advanceOnto(division: MapUnit, tile: Tile) {
+        if (division.currentTile.aerialDistanceTo(tile) != 1 || tile.militaryUnit != null || !division.movement.canMoveTo(tile)) return
+        division.removeFromTile()
+        division.putInTile(tile)
+        division.frontAnchor = tile.position
+    }
+
+    // endregion
+    // region contact and burden
 
     /** Cities that can take the citizen a division occupies, the current one included. */
     fun burdenCandidates(division: MapUnit): List<City> = division.civ.cities.filter {
@@ -198,17 +332,7 @@ object FrontResolver {
         previous?.shouldReassignPopulation = true
     }
 
-    /** The tiles the player designated that are still in reach and in contact. */
-    fun validTargets(division: MapUnit): List<Tile> {
-        if (division.frontTargets.isEmpty()) return emptyList()
-        val civ = division.civ
-        val origin = division.currentTile
-        return division.frontTargets.mapNotNull { civ.gameInfo.tileMap.getOrNull(it.x, it.y) }
-            .filter { it.aerialDistanceTo(origin) <= FrontMath.ZONE_RADIUS && isContactTile(it, civ) }
-            .sortedWith(compareBy<Tile>({ it.aerialDistanceTo(origin) }, { it.position.x }, { it.position.y }))
-    }
-
-    /** Order in which a division presses its contact tiles: enemy divisions, then enemy cities, then the rest. */
+    /** Order in which a division looks at its contact tiles: enemy divisions, then enemy cities, then the rest. */
     private fun targetPriority(tile: Tile, civ: Civilization) = when {
         holdsEnemyDivision(tile, civ) -> 0
         tile.isCityCenter() -> 1
@@ -231,93 +355,12 @@ object FrontResolver {
         return tile.neighbors.any { it.getOwner() == civ || it.militaryUnit?.civ == civ }
     }
 
-    private fun collectPressures(divisions: List<MapUnit>): LinkedHashMap<Tile, LinkedHashMap<Civilization, MutableList<Contribution>>> {
-        val pressures = LinkedHashMap<Tile, LinkedHashMap<Civilization, MutableList<Contribution>>>()
-        for (division in divisions) {
-            val tiles = pressedTilesOf(division)
-            if (tiles.isEmpty()) continue
-            val civ = division.civ
-            val stance = stanceOf(division)
-            val supply = FrontMath.supplyFactor(CombatCostCalculator.computeDistanceFactor(civ, division.currentTile))
-            val total = FrontMath.pressure(division.health, militaryLevel(civ), stance, supply, kindOf(division))
-            val perTile = total / tiles.size
-            for (tile in tiles)
-                pressures.getOrPut(tile) { LinkedHashMap() }
-                    .getOrPut(civ) { ArrayList() }
-                    .add(Contribution(division, perTile))
-        }
-        return pressures
-    }
-
-    /** Divisions of [owner] covering [tile], and the resistance the tile opposes. */
-    private fun resistanceOf(tile: Tile, owner: Civilization, divisions: List<MapUnit>): Pair<List<Contribution>, Float> {
-        val defenders = divisions
-            .filter { it.civ == owner && it.currentTile.aerialDistanceTo(tile) <= FrontMath.ZONE_RADIUS }
-            .map {
-                Contribution(it, FrontMath.resistance(it.health, militaryLevel(owner), stanceOf(it), it.frontEntrenchment, kindOf(it)))
-            }
-        // Local sympathy only protects a tile that really belongs to the defender
-        val sympathy = if (tile.getOwner() == owner) FrontMath.culturalSympathy(TileCultureLogic.getFriendlyShare(tile, owner)) else 0f
-        val resistance = FrontMath.tileResistance(
-            defenders.sumOf { it.force.toDouble() }.toFloat(), defenders.isNotEmpty(), tile.getDefensiveBonus(), sympathy,
-            if (tile.isCityCenter() && tile.getOwner() == owner) FrontMath.CITY_DEFENSE_BONUS else 0f
-        )
-        return Pair(defenders, resistance)
-    }
+    /** Whether any tile of the zone of the division is in contact with the enemy. */
+    fun isInContact(division: MapUnit): Boolean =
+        division.currentTile.getTilesInDistance(FrontMath.ZONE_RADIUS).any { isContactTile(it, division.civ) }
 
     // endregion
-    // region progress and ownership
-
-    private fun advance(tile: Tile, attacker: Civilization, ratio: Float) {
-        if (tile.frontAttacker != attacker.civName) {
-            tile.frontAttacker = attacker.civName
-            tile.frontProgress = 0f
-        }
-        tile.frontProgress += FrontMath.progressGain(ratio)
-    }
-
-    private fun clearIdleProgress(gameInfo: GameInfo, pressed: Set<Tile>) {
-        for (tile in gameInfo.tileMap.values) {
-            if (tile.frontProgress <= 0f || tile in pressed) continue
-            tile.frontProgress = FrontMath.idleProgress(tile.frontProgress)
-            if (tile.frontProgress == 0f) tile.frontAttacker = null
-        }
-    }
-
-    private fun flipTiles(gameInfo: GameInfo) {
-        // tileMap.values has a stable order; snapshot because flipping changes ownership as we go
-        val ready = gameInfo.tileMap.values.filter { it.frontProgress >= FrontMath.FLIP_PROGRESS }.toList()
-        for (tile in ready) {
-            val attackerName = tile.frontAttacker ?: continue
-            val attacker = gameInfo.civilizations.firstOrNull { it.civName == attackerName } ?: continue
-            val previousOwner = tile.getOwner()
-            // A city is taken by the pressure on its centre, once the attacker is in contact with it.
-            if (tile.isCityCenter() && previousOwner != null) {
-                if (!isContactTile(tile, attacker)) { tile.frontProgress = FrontMath.FLIP_PROGRESS - 1f; continue }
-                val city = tile.getCity() ?: continue
-                tile.frontProgress = 0f
-                tile.frontAttacker = null
-                previousOwner.addNotification("After the pressure of the enemy front, [${city.name}] has fallen to [${attacker.civName}]!",
-                    tile.position, NotificationCategory.War, NotificationIcon.Death)
-                attacker.addNotification("Our front has taken [${city.name}] from [${previousOwner.civName}]!",
-                    tile.position, NotificationCategory.War, NotificationIcon.War)
-                city.puppetCity(attacker)
-                continue
-            }
-            // A tile that would not touch the winner's territory waits instead of creating an enclave.
-            val reachable = previousOwner != null && tile.neighbors.any { it.getOwner() == attacker }
-            if (!reachable) { tile.frontProgress = FrontMath.FLIP_PROGRESS - 1f; continue }
-
-            val city = nearestCity(attacker, tile) ?: continue
-            city.expansion.takeOwnership(tile)
-            tile.frontProgress = 0f
-            tile.frontAttacker = null
-            attacker.addNotification("Our front took a tile from [${previousOwner!!.civName}]!",
-                tile.position, NotificationCategory.War, NotificationIcon.War)
-            previousOwner.addNotification("Enemy pressure took a tile from us!",
-                tile.position, NotificationCategory.War, NotificationIcon.War)
-        }
-    }
+    // region upkeep
 
     /** The citizen occupied by a division starts working again at the next reassignment. */
     private fun freeCitizen(division: MapUnit) {
@@ -327,110 +370,52 @@ object FrontResolver {
     private fun nearestCity(civ: Civilization, tile: Tile): City? =
         civ.cities.minByOrNull { it.getCenterTile().aerialDistanceTo(tile) }
 
-    // endregion
-    // region losses and upkeep of divisions
-
-    private fun accumulateLosses(
-        losses: MutableMap<MapUnit, LossTally>, inContact: MutableSet<MapUnit>,
-        attackers: List<Contribution>, pressure: Float,
-        defenders: List<Contribution>, resistance: Float
-    ) {
-        val dealtByDefenders = weightedDealt(defenders)
-        val dealtByAttackers = weightedDealt(attackers)
-        for (attacker in attackers) {
-            inContact += attacker.unit
-            val loss = FrontMath.loss(resistance, pressure, attacker.force / pressure,
-                stanceOf(attacker.unit).taken, dealtByDefenders)
-            losses.getOrPut(attacker.unit) { LossTally() }.add(loss)
+    private fun upkeep(division: MapUnit) {
+        if (division.health <= FrontMath.DISSOLVE_HEALTH) {
+            division.civ.addNotification("Our [${division.name}] has broken up!",
+                division.currentTile.position, NotificationCategory.War, NotificationIcon.Death)
+            freeCitizen(division)
+            division.destroy()
+            return
         }
-        val defenderForce = defenders.sumOf { it.force.toDouble() }.toFloat()
-        for (defender in defenders) {
-            inContact += defender.unit
-            val loss = FrontMath.loss(pressure, resistance, defender.force / defenderForce,
-                stanceOf(defender.unit).taken, dealtByAttackers)
-            losses.getOrPut(defender.unit) { LossTally() }.add(loss)
-        }
+        val posture = reactionOf(division)
+        val moved = division.frontAnchor != division.currentTile.position
+        division.frontEntrenchment = FrontMath.nextEntrenchment(division.frontEntrenchment, posture, moved)
+        division.frontAnchor = division.currentTile.position
+        reinforce(division, posture, isInContact(division))
     }
 
-    /** Average [FrontStance.dealt] of a side, weighted by force; 1 when nobody is there. */
-    private fun weightedDealt(side: List<Contribution>): Float {
-        val total = side.sumOf { it.force.toDouble() }.toFloat()
-        if (total <= 0f) return 1f
-        return side.sumOf { (stanceOf(it.unit).dealt * it.force).toDouble() }.toFloat() / total
-    }
-
-    /**
-     * Losses of a division over the tiles it fights on. They are averaged, not summed: a division
-     * spread over four tiles is not four times as exposed, its troops are only stretched over them.
-     */
-    private class LossTally {
-        private var sum = 0f
-        private var tiles = 0
-        fun add(loss: Float) { sum += loss; tiles++ }
-        fun average() = if (tiles == 0) 0f else sum / tiles
-    }
-
-    private fun applyLosses(losses: Map<MapUnit, LossTally>) {
-        for ((unit, tally) in losses) unit.health = (unit.health - tally.average().roundToInt()).coerceAtLeast(0)
-    }
-
-    private fun updateDivisions(divisions: List<MapUnit>, inContact: Set<MapUnit>) {
-        for (division in divisions) {
-            if (division.health <= FrontMath.DISSOLVE_HEALTH) {
-                division.civ.addNotification("Our [${division.name}] has broken up!",
-                    division.currentTile.position, NotificationCategory.War, NotificationIcon.Death)
-                freeCitizen(division)
-                division.destroy()
-                continue
-            }
-            division.frontTargets.removeAll { hex ->
-                val tile = division.civ.gameInfo.tileMap.getOrNull(hex.x, hex.y)
-                tile == null || tile !in validTargets(division)
-            }
-            val stance = stanceOf(division)
-            // Tell a human player why an offensive does nothing
-            if (stance.presses && division.civ.isHuman() && pressedTilesOf(division).isEmpty())
-                division.civ.addNotification("Our [${division.name}] has no enemy tile or division within reach of its zone.",
-                    division.currentTile.position, NotificationCategory.War, NotificationIcon.War)
-            val moved = division.frontAnchor != division.currentTile.position
-            division.frontEntrenchment = FrontMath.nextEntrenchment(division.frontEntrenchment, stance, moved)
-            division.frontAnchor = division.currentTile.position
-
-            if (stance.fallsBack) stepBack(division)
-            reinforce(division, stance, division in inContact)
-        }
-    }
-
-    /** Withdrawal: the token steps toward the nearest own city, trading space for health. */
-    private fun stepBack(division: MapUnit) {
+    /** The token steps toward the nearest own city, trading space for health. False when it has nowhere to go. */
+    fun stepBack(division: MapUnit): Boolean {
         val civ = division.civ
         val here = division.currentTile
         val distance = { tile: Tile -> civ.cities.minOfOrNull { it.getCenterTile().aerialDistanceTo(tile) } ?: Int.MAX_VALUE }
         val current = distance(here)
         val target = here.neighbors
             .filter { distance(it) < current && division.movement.canMoveTo(it) }
-            .minWithOrNull(compareBy<Tile>({ distance(it) }, { it.position.x }, { it.position.y })) ?: return
+            .minWithOrNull(compareBy<Tile>({ distance(it) }, { it.position.x }, { it.position.y })) ?: return false
         division.removeFromTile()
         division.putInTile(target)
         division.frontAnchor = target.position
         division.frontEntrenchment = 0f
+        return true
     }
 
     /** Health points a division regains, paid for in gold, only inside supplied own territory. */
-    private fun reinforce(division: MapUnit, stance: FrontStance, inContact: Boolean) {
+    private fun reinforce(division: MapUnit, posture: FrontStance, inContact: Boolean) {
         val civ = division.civ
         val tile = division.currentTile
         if (tile.getOwner() != civ) return
         if (CombatCostCalculator.computeDistanceFactor(civ, tile) > FrontMath.SUPPLY_DISTANCE_FOR_REINFORCEMENT) return
         val wanted = when {
             !inContact -> FrontMath.REINFORCE_IN_SUPPLY
-            stance == FrontStance.Defensive -> FrontMath.REINFORCE_IN_CONTACT
+            posture == FrontStance.Defensive -> FrontMath.REINFORCE_IN_CONTACT
             else -> 0
         }
         val missing = 100 - division.health
         val points = minOf(wanted, missing)
         if (points <= 0) return
-        val costPerPoint = 0.5f * (1 + civ.getEraNumber()) * stance.reinforcementCost
+        val costPerPoint = 0.5f * (1 + civ.getEraNumber()) * posture.reinforcementCost
         val affordable = if (costPerPoint <= 0f) points else minOf(points, (civ.gold / costPerPoint).toInt())
         if (affordable <= 0) return
         civ.addGold(-(affordable * costPerPoint).roundToInt())
